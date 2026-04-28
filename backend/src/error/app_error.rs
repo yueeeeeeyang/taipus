@@ -11,7 +11,7 @@ use tracing::error;
 
 use crate::{
     context::request_context::RequestContext, error::error_code::ErrorCode,
-    response::api_response::ApiResponse,
+    i18n::service::I18nService, response::api_response::ApiResponse,
 };
 
 pub type AppResult<T> = Result<T, AppError>;
@@ -23,6 +23,8 @@ pub struct AppError {
     pub code: ErrorCode,
     /// 对调用方可见的安全错误消息。
     pub message: String,
+    /// 系统多语言资源 key，用于按请求 locale 渲染错误消息。
+    pub message_key: String,
     /// 内部错误详情，只能写入日志，禁止进入接口响应。
     pub internal_message: Option<String>,
     /// 是否需要告警，系统错误默认需要关注。
@@ -35,6 +37,7 @@ impl AppError {
         Self {
             code,
             message: message.into(),
+            message_key: code.message_key().to_string(),
             internal_message: None,
             alert: matches!(code, ErrorCode::SystemError),
         }
@@ -73,6 +76,19 @@ impl AppError {
         ApiResponse::error(self.code, self.message.clone(), trace_id.into())
     }
 
+    /// 转换为本地化错误响应体。
+    ///
+    /// message 渲染使用请求最终 locale；如果资源缺失，由 `I18nService` 记录缺失并返回 key。
+    pub fn to_localized_api_response(
+        &self,
+        trace_id: impl Into<String>,
+        locale: &str,
+        i18n: &I18nService,
+    ) -> ApiResponse<Value> {
+        let message = i18n.system_text(&self.message_key, locale);
+        ApiResponse::error(self.code, message, trace_id.into())
+    }
+
     /// 使用当前请求 traceId 转换为 Axum 响应。
     ///
     /// 普通业务 API 错误响应仍使用 HTTP 200，业务状态由负数 `code` 表达。
@@ -93,8 +109,19 @@ impl AppError {
     /// 使用请求上下文转换为 Axum 响应。
     ///
     /// handler 应优先使用该入口，避免错误响应脱离中间件生成的 traceId。
-    pub fn into_response_with_context(self, ctx: &RequestContext) -> Response {
-        self.into_response_with_trace(ctx.trace_id.clone())
+    pub fn into_response_with_context(self, ctx: &RequestContext, i18n: &I18nService) -> Response {
+        if let Some(internal_message) = &self.internal_message {
+            error!(
+                code = self.code.as_i32(),
+                trace_id = %ctx.trace_id,
+                locale = %ctx.locale,
+                internal_message,
+                alert = self.alert,
+                "应用错误"
+            );
+        }
+        self.to_localized_api_response(ctx.trace_id.clone(), &ctx.locale, i18n)
+            .with_status(StatusCode::OK)
     }
 }
 

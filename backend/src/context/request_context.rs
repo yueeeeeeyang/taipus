@@ -26,6 +26,12 @@ pub struct RequestContext {
     pub client_ip: Option<String>,
     /// 客户端 User-Agent，供审计和问题排查使用。
     pub user_agent: Option<String>,
+    /// 最终采用的 locale，由多语言中间件按固定优先级解析。
+    pub locale: String,
+    /// 调用方原始请求的 locale，可能来自 query、请求头或 `Accept-Language`。
+    pub requested_locale: Option<String>,
+    /// 用户偏好 locale，后续真实鉴权接入后由用户设置写入。
+    pub locale_preference: Option<String>,
     /// 鉴权类型，用于区分匿名、用户和系统任务调用。
     pub auth_type: AuthType,
     /// 是否已认证，避免调用方只依赖 `user_id` 是否为空做权限判断。
@@ -55,6 +61,9 @@ impl RequestContext {
             roles: Vec::new(),
             client_ip: None,
             user_agent: None,
+            locale: "und".to_string(),
+            requested_locale: None,
+            locale_preference: None,
             auth_type: AuthType::Anonymous,
             is_authenticated: false,
         }
@@ -71,6 +80,14 @@ impl RequestContext {
         self.client_ip = client_ip;
         self.user_agent = user_agent;
         self
+    }
+
+    /// 写入语言协商结果。
+    ///
+    /// locale 中间件必须在 handler 执行前调用该方法，保证响应体、响应头和日志使用同一语言。
+    pub fn set_locale(&mut self, locale: impl Into<String>, requested_locale: Option<String>) {
+        self.locale = locale.into();
+        self.requested_locale = requested_locale;
     }
 }
 

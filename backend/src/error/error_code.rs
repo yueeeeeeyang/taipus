@@ -49,6 +49,23 @@ impl ErrorCode {
         }
     }
 
+    /// 返回系统多语言资源 key。
+    ///
+    /// 错误码和 message key 分开维护，保证数字业务码稳定的同时允许响应消息按 locale 渲染。
+    pub fn message_key(self) -> &'static str {
+        match self {
+            Self::Success => "error.success",
+            Self::ParamInvalid => "error.param_invalid",
+            Self::Unauthorized => "error.unauthorized",
+            Self::Forbidden => "error.forbidden",
+            Self::ResourceNotFound => "error.resource_not_found",
+            Self::Conflict => "error.conflict",
+            Self::BusinessError => "error.business_error",
+            Self::RateLimited => "error.rate_limited",
+            Self::SystemError => "error.system_error",
+        }
+    }
+
     /// 判断业务码是否表示成功。
     ///
     /// 当前约定成功码为正数，错误码为负数。

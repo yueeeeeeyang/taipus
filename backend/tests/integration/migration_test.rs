@@ -19,3 +19,19 @@ fn active_unique_index_migration_exists_for_mysql_and_postgres() {
     assert!(postgres.contains("WHERE deleted = FALSE"));
     assert!(postgres.contains("uk_app_metadata_active_key"));
 }
+
+#[test]
+fn business_translation_migration_exists_for_mysql_and_postgres() {
+    // 业务翻译表必须在 MySQL 和 PostgreSQL 中保持同版本，并只约束未删除翻译唯一性。
+    let mysql =
+        include_str!("../../migrations/mysql/V202604280003__create_business_translations.sql");
+    let postgres =
+        include_str!("../../migrations/postgres/V202604280003__create_business_translations.sql");
+
+    assert!(mysql.contains("CREATE TABLE business_translations"));
+    assert!(mysql.contains("active_translation_key"));
+    assert!(mysql.contains("uk_business_translations_active_key"));
+    assert!(postgres.contains("CREATE TABLE business_translations"));
+    assert!(postgres.contains("WHERE deleted = FALSE"));
+    assert!(postgres.contains("uk_business_translations_active_key"));
+}

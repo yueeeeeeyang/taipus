@@ -17,6 +17,8 @@ pub struct AppConfig {
     pub database: DatabaseConfig,
     /// tracing 日志过滤级别，允许通过环境变量控制不同环境的日志噪声。
     pub log_level: String,
+    /// 多语言配置，包含默认语言、支持语言和系统资源版本。
+    pub i18n: I18nConfig,
 }
 
 #[derive(Debug, Clone)]
@@ -41,6 +43,16 @@ pub struct DatabaseConfig {
     pub connect_timeout: Duration,
     /// 是否在服务启动时执行 Refinery migration，生产默认开启以保证结构一致性。
     pub run_migrations: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct I18nConfig {
+    /// 配置文件指定的默认语言，业务代码禁止写死默认 locale。
+    pub default_locale: String,
+    /// 当前系统允许协商和返回的语言列表。
+    pub supported_locales: Vec<String>,
+    /// 系统多语言资源版本，用于前端和移动端缓存失效。
+    pub system_resource_version: String,
 }
 
 impl AppConfig {
@@ -84,6 +96,19 @@ impl AppConfig {
             read_env("DATABASE_RUN_MIGRATIONS"),
             true,
         )?;
+        // 默认语言必须来自配置，避免业务代码或接口逻辑写死某个 locale。
+        let default_locale = read_env("I18N_DEFAULT_LOCALE")
+            .ok_or_else(|| AppError::param_invalid("I18N_DEFAULT_LOCALE 是必填配置"))?;
+        let supported_locales =
+            parse_locale_list(read_env("I18N_SUPPORTED_LOCALES"), &default_locale)?;
+        let system_resource_version =
+            read_env("I18N_SYSTEM_RESOURCE_VERSION").unwrap_or_else(|| "202604280001".to_string());
+        let mut i18n = I18nConfig {
+            default_locale,
+            supported_locales,
+            system_resource_version,
+        };
+        canonicalize_i18n_config(&mut i18n)?;
 
         let config = Self {
             app_env,
@@ -97,6 +122,7 @@ impl AppConfig {
                 run_migrations,
             },
             log_level: read_env("RUST_LOG").unwrap_or_else(|| "info".to_string()),
+            i18n,
         };
         config.validate()?;
         Ok(config)
@@ -120,6 +146,11 @@ impl AppConfig {
                 run_migrations: false,
             },
             log_level: "debug".to_string(),
+            i18n: I18nConfig {
+                default_locale: "zh-CN".to_string(),
+                supported_locales: vec!["zh-CN".to_string(), "en-US".to_string()],
+                system_resource_version: "test-version".to_string(),
+            },
         }
     }
 
@@ -146,7 +177,8 @@ impl AppConfig {
         validate_url_matches_database_type(
             &self.database.database_type,
             &self.database.database_url,
-        )
+        )?;
+        validate_i18n_config(&self.i18n)
     }
 }
 
@@ -168,6 +200,145 @@ fn parse_bool_env(key: &str, value: Option<String>, default: bool) -> Result<boo
             ))),
         },
     }
+}
+
+/// 解析逗号分隔的 locale 列表。
+///
+/// 未配置支持语言时，只启用配置默认语言，避免隐式把某个固定语言加入可用范围。
+fn parse_locale_list(value: Option<String>, default_locale: &str) -> Result<Vec<String>, AppError> {
+    let locales = value
+        .map(|raw| {
+            raw.split(',')
+                .map(str::trim)
+                .filter(|locale| !locale.is_empty())
+                .map(ToOwned::to_owned)
+                .collect::<Vec<_>>()
+        })
+        .filter(|locales| !locales.is_empty())
+        .unwrap_or_else(|| vec![default_locale.to_string()]);
+
+    for locale in &locales {
+        if !is_valid_locale_tag(locale) {
+            return Err(AppError::param_invalid(format!(
+                "I18N_SUPPORTED_LOCALES 包含非法 locale: {locale}"
+            )));
+        }
+    }
+
+    Ok(locales)
+}
+
+fn validate_i18n_config(config: &I18nConfig) -> Result<(), AppError> {
+    if !is_valid_locale_tag(&config.default_locale) {
+        return Err(AppError::param_invalid(
+            "I18N_DEFAULT_LOCALE 必须是合法 locale",
+        ));
+    }
+    let available_locales = available_resource_locales();
+    validate_locale_has_resource(
+        "I18N_DEFAULT_LOCALE",
+        &config.default_locale,
+        &available_locales,
+    )?;
+    for locale in &config.supported_locales {
+        if !is_valid_locale_tag(locale) {
+            return Err(AppError::param_invalid(format!(
+                "I18N_SUPPORTED_LOCALES 包含非法 locale: {locale}"
+            )));
+        }
+        validate_locale_has_resource("I18N_SUPPORTED_LOCALES", locale, &available_locales)?;
+    }
+    if !config
+        .supported_locales
+        .iter()
+        .any(|locale| locale == &config.default_locale)
+    {
+        return Err(AppError::param_invalid(
+            "I18N_SUPPORTED_LOCALES 必须包含 I18N_DEFAULT_LOCALE",
+        ));
+    }
+    if config.system_resource_version.trim().is_empty() {
+        return Err(AppError::param_invalid(
+            "I18N_SYSTEM_RESOURCE_VERSION 不能为空",
+        ));
+    }
+    Ok(())
+}
+
+fn canonicalize_i18n_config(config: &mut I18nConfig) -> Result<(), AppError> {
+    let available_locales = available_resource_locales();
+    config.default_locale = canonicalize_resource_locale(
+        "I18N_DEFAULT_LOCALE",
+        &config.default_locale,
+        &available_locales,
+    )?;
+
+    let mut canonical_supported_locales = Vec::new();
+    for locale in &config.supported_locales {
+        let canonical =
+            canonicalize_resource_locale("I18N_SUPPORTED_LOCALES", locale, &available_locales)?;
+        if !canonical_supported_locales.contains(&canonical) {
+            canonical_supported_locales.push(canonical);
+        }
+    }
+    config.supported_locales = canonical_supported_locales;
+    Ok(())
+}
+
+fn available_resource_locales() -> Vec<String> {
+    rust_i18n::available_locales!()
+        .into_iter()
+        .map(|locale| locale.into_owned())
+        .collect()
+}
+
+fn canonicalize_resource_locale(
+    field_name: &str,
+    locale: &str,
+    available_locales: &[String],
+) -> Result<String, AppError> {
+    if !is_valid_locale_tag(locale) {
+        return Err(AppError::param_invalid(format!(
+            "{field_name} 包含非法 locale: {locale}"
+        )));
+    }
+    available_locales
+        .iter()
+        .find(|available_locale| available_locale.eq_ignore_ascii_case(locale))
+        .cloned()
+        .ok_or_else(|| {
+            AppError::param_invalid(format!(
+                "{field_name}={locale} 未找到对应系统多语言资源文件"
+            ))
+        })
+}
+
+fn validate_locale_has_resource(
+    field_name: &str,
+    locale: &str,
+    available_locales: &[String],
+) -> Result<(), AppError> {
+    let exists = available_locales
+        .iter()
+        .any(|available_locale| available_locale == locale);
+    if exists {
+        Ok(())
+    } else {
+        Err(AppError::param_invalid(format!(
+            "{field_name}={locale} 未找到对应系统多语言资源文件"
+        )))
+    }
+}
+
+fn is_valid_locale_tag(value: &str) -> bool {
+    let len = value.len();
+    if !(2..=35).contains(&len) {
+        return false;
+    }
+
+    value
+        .split('-')
+        .all(|part| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_alphanumeric()))
 }
 
 /// 校验连接串协议和配置的数据库类型一致。
@@ -198,7 +369,10 @@ fn validate_url_matches_database_type(
 
 #[cfg(test)]
 mod tests {
-    use super::parse_bool_env;
+    use super::{
+        I18nConfig, canonicalize_i18n_config, parse_bool_env, parse_locale_list,
+        validate_i18n_config,
+    };
 
     #[test]
     fn parse_bool_env_accepts_case_insensitive_true_values() {
@@ -220,6 +394,71 @@ mod tests {
         assert!(
             parse_bool_env("DATABASE_RUN_MIGRATIONS", Some("maybe".to_string()), true).is_err()
         );
+    }
+
+    #[test]
+    fn parse_locale_list_defaults_to_config_default_locale() {
+        // 未显式配置支持语言时，只启用默认语言，保证默认语言来源仍然是配置项。
+        let locales = parse_locale_list(None, "en-US").unwrap();
+        assert_eq!(locales, vec!["en-US"]);
+    }
+
+    #[test]
+    fn parse_locale_list_rejects_invalid_locale() {
+        // locale 会进入响应头和缓存 key，非法字符必须在启动期拦截。
+        assert!(parse_locale_list(Some("zh-CN,bad locale".to_string()), "zh-CN").is_err());
+    }
+
+    #[test]
+    fn validate_i18n_config_accepts_loaded_resource_locales() {
+        // 配置语言必须和已加载资源文件一致，合法资源语言应正常通过启动校验。
+        let config = I18nConfig {
+            default_locale: "zh-CN".to_string(),
+            supported_locales: vec!["zh-CN".to_string(), "en-US".to_string()],
+            system_resource_version: "test-version".to_string(),
+        };
+
+        assert!(validate_i18n_config(&config).is_ok());
+    }
+
+    #[test]
+    fn validate_i18n_config_rejects_locale_without_resource_file() {
+        // 只声明配置但没有对应 yml 文件时必须启动失败，避免返回伪支持语言。
+        let config = I18nConfig {
+            default_locale: "fr-FR".to_string(),
+            supported_locales: vec!["fr-FR".to_string()],
+            system_resource_version: "test-version".to_string(),
+        };
+
+        assert!(validate_i18n_config(&config).is_err());
+    }
+
+    #[test]
+    fn canonicalize_i18n_config_rewrites_locale_case_to_resource_locale() {
+        // 环境变量常见大小写差异必须收敛为资源文件中的 canonical locale，避免 rust-i18n 查找失败。
+        let mut config = I18nConfig {
+            default_locale: "en-us".to_string(),
+            supported_locales: vec!["zh-cn".to_string(), "en-us".to_string()],
+            system_resource_version: "test-version".to_string(),
+        };
+
+        canonicalize_i18n_config(&mut config).unwrap();
+
+        assert_eq!(config.default_locale, "en-US");
+        assert_eq!(config.supported_locales, vec!["zh-CN", "en-US"]);
+        assert!(validate_i18n_config(&config).is_ok());
+    }
+
+    #[test]
+    fn validate_i18n_config_rejects_non_canonical_locale_case() {
+        // 绕过环境变量解析直接构造配置时，非资源文件精确写法必须被拒绝。
+        let config = I18nConfig {
+            default_locale: "en-us".to_string(),
+            supported_locales: vec!["en-us".to_string()],
+            system_resource_version: "test-version".to_string(),
+        };
+
+        assert!(validate_i18n_config(&config).is_err());
     }
 }
 

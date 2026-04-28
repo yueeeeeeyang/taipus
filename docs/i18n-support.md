@@ -59,19 +59,13 @@
 - 前端和移动端固定 UI 文本，例如菜单、按钮、表单标签、空状态、确认弹窗。
 - 平台内置配置文本，例如系统字典的内置显示名、默认页面标题和默认流程提示。
 
-系统资源建议按 locale、platform 和 namespace 分层：
+系统资源按 `rust-i18n` 支持的 `_version: 1` 资源文件维护，每种语言一个独立 yml，资源 key 使用 namespace 前缀区分系统域：
 
 ```text
 backend/
   locales/
-    zh-CN/
-      backend.yml
-      common.yml
-      menu.yml
-    en-US/
-      backend.yml
-      common.yml
-      menu.yml
+    zh-CN.yml
+    en-US.yml
 ```
 
 namespace 约定如下：
@@ -94,6 +88,14 @@ form.validation.required
 ```
 
 后端错误处理需要从固定 message 文本演进为 `messageKey + messageArgs`。`ErrorCode` 仍保持数字业务码稳定，`AppError` 负责携带 `messageKey`、安全默认消息和参数，最终由 `I18nService` 按请求 locale 渲染响应 `message`。
+
+当前后端配置项如下：
+
+| 配置项 | 必填 | 说明 |
+| --- | --- | --- |
+| `I18N_DEFAULT_LOCALE` | 是 | 配置默认语言，业务代码不得写死默认 locale。 |
+| `I18N_SUPPORTED_LOCALES` | 否 | 逗号分隔的支持语言列表；未配置时只启用默认语言。 |
+| `I18N_SYSTEM_RESOURCE_VERSION` | 否 | 系统资源版本；未配置时使用当前后端内置版本。 |
 
 ## 6. 业务数据多语言方案
 

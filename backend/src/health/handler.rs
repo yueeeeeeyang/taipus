@@ -37,15 +37,19 @@ pub async fn ready(State(state): State<AppState>, ctx: RequestContext) -> Respon
             )
             .with_status(StatusCode::OK),
             Err(err) => {
+                let message = state
+                    .i18n
+                    .system_text("health.database_unavailable", &ctx.locale);
                 error!(
                     code = ErrorCode::SystemError.as_i32(),
                     trace_id = %ctx.trace_id,
+                    locale = %ctx.locale,
                     database_type = %database.database_type(),
                     error = %err,
                     "就绪检查数据库连接失败"
                 );
                 // ready 失败必须返回 HTTP 503，满足 Kubernetes、网关和负载均衡探针语义。
-                ApiResponse::error(ErrorCode::SystemError, "数据库连接不可用", ctx.trace_id)
+                ApiResponse::error(ErrorCode::SystemError, message, ctx.trace_id)
                     .with_data(json!({
                         "status": "NOT_READY",
                         "reason": "database_unavailable"
@@ -54,11 +58,16 @@ pub async fn ready(State(state): State<AppState>, ctx: RequestContext) -> Respon
             }
         },
         // 测试或异常启动状态下数据库连接池可能缺失，此时实例必须明确不可接流量。
-        None => ApiResponse::error(ErrorCode::SystemError, "数据库连接池未初始化", ctx.trace_id)
-            .with_data(json!({
-                "status": "NOT_READY",
-                "reason": "database_pool_missing"
-            }))
-            .with_status(StatusCode::SERVICE_UNAVAILABLE),
+        None => {
+            let message = state
+                .i18n
+                .system_text("health.database_pool_missing", &ctx.locale);
+            ApiResponse::error(ErrorCode::SystemError, message, ctx.trace_id)
+                .with_data(json!({
+                    "status": "NOT_READY",
+                    "reason": "database_pool_missing"
+                }))
+                .with_status(StatusCode::SERVICE_UNAVAILABLE)
+        }
     }
 }

@@ -68,6 +68,7 @@ backend/
     middleware/
       mod.rs
       trace_id.rs
+      locale.rs
       auth.rs
       access_log.rs
     db/
@@ -85,6 +86,14 @@ backend/
       mod.rs
       route.rs
       handler.rs
+    i18n/
+      mod.rs
+      locale.rs
+      service.rs
+      route.rs
+      handler.rs
+      system_resource.rs
+      business_translation.rs
     modules/
       mod.rs
       example/
@@ -102,13 +111,19 @@ backend/
     mysql/
       V202604280001__init_foundation.sql
       V202604280002__fix_app_metadata_active_unique_index.sql
+      V202604280003__create_business_translations.sql
     postgres/
       V202604280001__init_foundation.sql
       V202604280002__fix_app_metadata_active_unique_index.sql
+      V202604280003__create_business_translations.sql
+  locales/
+    zh-CN.yml
+    en-US.yml
   tests/
     integration/
       health_check_test.rs
       api_response_test.rs
+      i18n_test.rs
       migration_test.rs
 ```
 
@@ -128,8 +143,10 @@ backend/
 | `src/validation/` | 封装参数校验工具，统一把校验失败转换为 `-400`。 |
 | `src/utils/` | 放置无业务含义的通用工具，例如 ID 生成、时间转换和安全字符串处理。 |
 | `src/health/` | 提供健康检查和就绪检查接口，供部署、监控和发布流程使用。 |
+| `src/i18n/` | 提供语言协商、系统资源分发、系统消息渲染和业务翻译基础模型。 |
 | `src/modules/` | 按业务领域拆分模块，每个模块内部保持 route、handler、service、repository、model、dto 分层。 |
 | `migrations/` | 存放 Refinery migration，按数据库方言分目录维护同版本脚本。 |
+| `locales/` | 存放 `rust-i18n` 系统多语言资源，后端系统消息和前端固定文本均从这里分发。 |
 | `tests/` | 存放跨模块集成测试，重点覆盖启动、响应封装、错误映射和数据库行为。 |
 
 业务模块内部职责边界如下：
@@ -307,9 +324,11 @@ backend/migrations/
   mysql/
     V202604280001__init_foundation.sql
     V202604280002__fix_app_metadata_active_unique_index.sql
+    V202604280003__create_business_translations.sql
   postgres/
     V202604280001__init_foundation.sql
     V202604280002__fix_app_metadata_active_unique_index.sql
+    V202604280003__create_business_translations.sql
 ```
 
 数据库适配策略如下：
