@@ -2,10 +2,16 @@
 //!
 //! 健康检查需要同时满足部署探针 HTTP 状态码语义和统一响应体契约。
 
+use std::time::Duration;
+
 use axum::{body::Body, http::Request};
 use http::StatusCode;
 use serde_json::Value;
-use taipus_backend::{build_router, tests::fixture::app_state_without_database};
+use sqlx::mysql::MySqlPoolOptions;
+use taipus_backend::{
+    AppConfig, AppState, build_router, db::executor::DatabasePool,
+    tests::fixture::app_state_without_database,
+};
 use tower::ServiceExt;
 
 async fn read_json(response: axum::response::Response) -> Value {
@@ -58,7 +64,47 @@ async fn ready_check_returns_503_when_database_is_missing() {
     let body = read_json(response).await;
     assert_eq!(body["code"], -500);
     assert_eq!(body["data"]["status"], "NOT_READY");
+    assert_eq!(body["data"]["reason"], "database_pool_missing");
     assert!(body["traceId"].as_str().is_some());
+}
+
+#[tokio::test]
+async fn ready_check_hides_raw_database_error() {
+    // ping 失败时响应体只能暴露稳定原因码，原始数据库错误必须留在服务端日志。
+    let pool = MySqlPoolOptions::new()
+        .acquire_timeout(Duration::from_millis(50))
+        .connect_lazy("mysql://root:root@127.0.0.1:1/taipus_test")
+        .expect("测试懒连接池必须可构造");
+    let app = build_router(AppState::new(
+        AppConfig::for_test(),
+        Some(DatabasePool::MySql(pool)),
+    ));
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/health/ready")
+                .body(Body::empty())
+                .expect("测试请求必须可构造"),
+        )
+        .await
+        .expect("就绪检查请求必须可执行");
+
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+
+    let body = read_json(response).await;
+    assert_eq!(body["data"]["reason"], "database_unavailable");
+    assert!(
+        !body["data"]["reason"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("root")
+    );
+    assert!(
+        !body["data"]["reason"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("127.0.0.1")
+    );
 }
 
 #[tokio::test]

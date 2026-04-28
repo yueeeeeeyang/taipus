@@ -79,9 +79,11 @@ impl AppConfig {
                 AppError::param_invalid("DATABASE_CONNECT_TIMEOUT_SECONDS 必须是正整数")
             })?;
         // 迁移默认开启，只有测试、临时诊断或受控发布流程才应显式关闭。
-        let run_migrations = read_env("DATABASE_RUN_MIGRATIONS")
-            .map(|value| matches!(value.as_str(), "true" | "1" | "yes" | "on"))
-            .unwrap_or(true);
+        let run_migrations = parse_bool_env(
+            "DATABASE_RUN_MIGRATIONS",
+            read_env("DATABASE_RUN_MIGRATIONS"),
+            true,
+        )?;
 
         let config = Self {
             app_env,
@@ -152,6 +154,22 @@ fn read_env(key: &str) -> Option<String> {
     env::var(key).ok().filter(|value| !value.trim().is_empty())
 }
 
+/// 严格解析布尔环境变量。
+///
+/// 非法值必须在启动期失败，避免生产环境因大小写或拼写错误静默关闭 migration 等关键能力。
+fn parse_bool_env(key: &str, value: Option<String>, default: bool) -> Result<bool, AppError> {
+    match value {
+        None => Ok(default),
+        Some(raw) => match raw.trim().to_ascii_lowercase().as_str() {
+            "true" | "1" | "yes" | "on" => Ok(true),
+            "false" | "0" | "no" | "off" => Ok(false),
+            _ => Err(AppError::param_invalid(format!(
+                "{key} 必须是布尔值 true/false/1/0/yes/no/on/off"
+            ))),
+        },
+    }
+}
+
 /// 校验连接串协议和配置的数据库类型一致。
 ///
 /// 该检查可以提前发现 `DATABASE_TYPE=mysql` 但传入 PostgreSQL URL 的配置错误，
@@ -175,6 +193,33 @@ fn validate_url_matches_database_type(
             "DATABASE_URL 与 DATABASE_TYPE={} 不匹配",
             database_type.as_str()
         )))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_bool_env;
+
+    #[test]
+    fn parse_bool_env_accepts_case_insensitive_true_values() {
+        // 迁移开关来自部署系统，解析必须兼容常见大小写和布尔别名。
+        assert!(
+            parse_bool_env("DATABASE_RUN_MIGRATIONS", Some("TRUE".to_string()), false).unwrap()
+        );
+        assert!(
+            parse_bool_env("DATABASE_RUN_MIGRATIONS", Some(" yes ".to_string()), false).unwrap()
+        );
+        assert!(parse_bool_env("DATABASE_RUN_MIGRATIONS", None, true).unwrap());
+    }
+
+    #[test]
+    fn parse_bool_env_accepts_false_values_and_rejects_invalid_values() {
+        // 非法值必须直接失败，避免关键启动行为被静默改写。
+        assert!(!parse_bool_env("DATABASE_RUN_MIGRATIONS", Some("OFF".to_string()), true).unwrap());
+        assert!(!parse_bool_env("DATABASE_RUN_MIGRATIONS", Some("0".to_string()), true).unwrap());
+        assert!(
+            parse_bool_env("DATABASE_RUN_MIGRATIONS", Some("maybe".to_string()), true).is_err()
+        );
     }
 }
 

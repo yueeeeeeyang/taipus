@@ -101,12 +101,15 @@ backend/
   migrations/
     mysql/
       V202604280001__init_foundation.sql
+      V202604280002__fix_app_metadata_active_unique_index.sql
     postgres/
       V202604280001__init_foundation.sql
+      V202604280002__fix_app_metadata_active_unique_index.sql
   tests/
     integration/
       health_check_test.rs
       api_response_test.rs
+      migration_test.rs
 ```
 
 目录职责如下：
@@ -293,6 +296,7 @@ backend/
 - 乐观锁更新失败必须返回 `-409`，并提示调用方刷新后重试。
 - 系统错误响应不得暴露 SQL、堆栈、连接串、密钥或内部路径。
 - 日志中必须记录内部错误细节，并带上 `traceId`、接口路径、HTTP 方法和调用方信息。
+- `AppError` 不得在缺少 `RequestContext` 的兜底路径中自行生成响应 `traceId`；handler 必须显式携带当前请求上下文转换错误响应。
 
 ## 9. 数据库与迁移约定
 
@@ -302,8 +306,10 @@ backend/
 backend/migrations/
   mysql/
     V202604280001__init_foundation.sql
+    V202604280002__fix_app_metadata_active_unique_index.sql
   postgres/
     V202604280001__init_foundation.sql
+    V202604280002__fix_app_metadata_active_unique_index.sql
 ```
 
 数据库适配策略如下：
@@ -323,6 +329,7 @@ backend/migrations/
 - 表名、字段名和索引名必须清晰稳定，避免使用数据库关键字。
 - 重要查询路径必须在建表或改表时同步规划索引。
 - 删除业务数据默认采用逻辑删除，不得直接物理删除，除非需求明确允许并说明风险。
+- 逻辑删除表的唯一约束必须只约束未删除数据；MySQL 可使用生成列承载未删除业务键并建立唯一索引，PostgreSQL 可使用 `WHERE deleted = FALSE` 的 partial unique index。
 
 所有持久化业务实体必须包含以下统一基础字段，并明确区分数据库列名、Rust 持久化模型字段和 JSON DTO 字段：
 
@@ -387,7 +394,7 @@ backend/migrations/
 | `GET /health/live` | 存活检查，只验证进程可响应，不依赖数据库。 |
 | `GET /health/ready` | 就绪检查，验证数据库连接池和必要依赖可用。 |
 
-健康检查响应也使用统一响应结构，但 HTTP 状态码必须服务于部署探针语义：检查成功返回 HTTP `200`，检查失败返回 HTTP `503`。就绪检查失败时响应体必须返回负数业务码，并保留 `code`、`message`、`data`、`traceId`、`timestamp` 字段，便于排查失败原因。
+健康检查响应也使用统一响应结构，但 HTTP 状态码必须服务于部署探针语义：检查成功返回 HTTP `200`，检查失败返回 HTTP `503`。就绪检查失败时响应体必须返回负数业务码，并保留 `code`、`message`、`data`、`traceId`、`timestamp` 字段。数据库原始错误只能进入服务端日志，响应体只能返回稳定原因码。
 
 ## 12. 测试与验收要求
 
@@ -399,12 +406,14 @@ backend/migrations/
 - `AppError` 能正确映射到数字业务码，且业务 API 标准响应 HTTP 状态码固定为 `200`。
 - `X-Trace-Id` 缺失、合法、非法三种场景都能得到稳定响应头和响应体 `traceId`。
 - `PageQuery` 能处理默认值、最小值、最大 `pageSize` 和非法参数。
+- `PageQuery` 对超大 `pageNo` 计算 offset 时必须返回参数错误，不得 panic 或整数回绕。
 - 列表查询默认过滤逻辑删除数据。
 - 更新和逻辑删除能正确维护 `version`、`updatedBy`、`updatedTime`、`deletedBy`、`deletedTime`。
 - 服务启动时能按配置执行对应数据库方言的 Refinery migration。
 - MySQL 与 PostgreSQL migration 文件版本号必须保持一致。
 - `/health/live` 在进程可响应时返回成功。
 - `/health/ready` 在数据库不可用时返回 HTTP `503`，响应体仍包含统一结构和负数业务码。
+- `/health/ready` 在数据库不可用时不得在响应体暴露原始数据库错误。
 - 请求日志、错误日志和响应体能关联同一个 `traceId`。
 
 ## 13. 后续实现顺序建议

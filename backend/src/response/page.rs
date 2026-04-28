@@ -80,10 +80,14 @@ impl PageQuery {
             )));
         }
 
+        let offset = (page_no - 1)
+            .checked_mul(page_size)
+            .ok_or_else(|| AppError::param_invalid("pageNo 与 pageSize 计算 offset 溢出"))?;
+
         Ok(NormalizedPageQuery {
             page_no,
             page_size,
-            offset: (page_no - 1) * page_size,
+            offset,
         })
     }
 }

@@ -7,3 +7,6 @@ mod api_response_test;
 
 #[path = "integration/health_check_test.rs"]
 mod health_check_test;
+
+#[path = "integration/migration_test.rs"]
+mod migration_test;

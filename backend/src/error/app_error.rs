@@ -3,14 +3,15 @@
 //! `AppError` 同时保存调用方可见消息和内部日志消息。响应中只暴露安全消息，内部细节交给
 //! tracing 记录，避免 SQL、连接串、密钥或堆栈信息泄漏到前端。
 
-use axum::response::{IntoResponse, Response};
+use axum::response::Response;
 use http::StatusCode;
 use serde_json::Value;
 use thiserror::Error;
 use tracing::error;
 
 use crate::{
-    error::error_code::ErrorCode, response::api_response::ApiResponse, utils::id::generate_trace_id,
+    context::request_context::RequestContext, error::error_code::ErrorCode,
+    response::api_response::ApiResponse,
 };
 
 pub type AppResult<T> = Result<T, AppError>;
@@ -76,9 +77,11 @@ impl AppError {
     ///
     /// 普通业务 API 错误响应仍使用 HTTP 200，业务状态由负数 `code` 表达。
     pub fn into_response_with_trace(self, trace_id: impl Into<String>) -> Response {
+        let trace_id = trace_id.into();
         if let Some(internal_message) = &self.internal_message {
             error!(
                 code = self.code.as_i32(),
+                %trace_id,
                 internal_message,
                 alert = self.alert,
                 "应用错误"
@@ -86,13 +89,12 @@ impl AppError {
         }
         self.to_api_response(trace_id).with_status(StatusCode::OK)
     }
-}
 
-impl IntoResponse for AppError {
-    fn into_response(self) -> Response {
-        // 兜底转换无法访问请求扩展中的 traceId，因此生成新的 traceId，保证响应结构完整。
-        // 业务 handler 推荐显式使用 `into_response_with_trace` 以保持日志和响应同链路。
-        self.into_response_with_trace(generate_trace_id())
+    /// 使用请求上下文转换为 Axum 响应。
+    ///
+    /// handler 应优先使用该入口，避免错误响应脱离中间件生成的 traceId。
+    pub fn into_response_with_context(self, ctx: &RequestContext) -> Response {
+        self.into_response_with_trace(ctx.trace_id.clone())
     }
 }
 

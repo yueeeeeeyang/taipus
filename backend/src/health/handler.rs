@@ -6,6 +6,7 @@
 use axum::{extract::State, response::Response};
 use http::StatusCode;
 use serde_json::json;
+use tracing::error;
 
 use crate::{
     AppState, context::request_context::RequestContext, error::error_code::ErrorCode,
@@ -36,11 +37,18 @@ pub async fn ready(State(state): State<AppState>, ctx: RequestContext) -> Respon
             )
             .with_status(StatusCode::OK),
             Err(err) => {
+                error!(
+                    code = ErrorCode::SystemError.as_i32(),
+                    trace_id = %ctx.trace_id,
+                    database_type = %database.database_type(),
+                    error = %err,
+                    "就绪检查数据库连接失败"
+                );
                 // ready 失败必须返回 HTTP 503，满足 Kubernetes、网关和负载均衡探针语义。
                 ApiResponse::error(ErrorCode::SystemError, "数据库连接不可用", ctx.trace_id)
                     .with_data(json!({
                         "status": "NOT_READY",
-                        "reason": err.to_string()
+                        "reason": "database_unavailable"
                     }))
                     .with_status(StatusCode::SERVICE_UNAVAILABLE)
             }

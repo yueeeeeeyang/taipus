@@ -2,8 +2,10 @@
 //!
 //! 这些测试固定前后端依赖的 JSON 字段、数字业务码和分页边界，避免后续重构破坏接口契约。
 
+use http::StatusCode;
 use serde_json::{Value, json};
 use taipus_backend::{
+    AppError,
     error::error_code::ErrorCode,
     response::{
         api_response::ApiResponse,
@@ -37,6 +39,23 @@ fn error_response_keeps_data_null_and_negative_code() {
     assert_eq!(value["traceId"], "trace-1234");
 }
 
+#[tokio::test]
+async fn app_error_response_uses_supplied_trace_id() {
+    // AppError 必须使用 handler 传入的请求 traceId，不能在兜底转换中重新生成链路标识。
+    let response = AppError::system("database connection refused")
+        .into_response_with_trace("trace-error-1234");
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("错误响应体必须可读取");
+    let value: Value = serde_json::from_slice(&bytes).expect("错误响应体必须是 JSON");
+
+    assert_eq!(value["code"], -500);
+    assert_eq!(value["traceId"], "trace-error-1234");
+    assert!(value["data"].is_null());
+}
+
 #[test]
 fn page_query_validates_bounds() {
     // 缺省分页参数用于列表接口的默认行为，必须稳定为第一页和默认分页大小。
@@ -56,6 +75,20 @@ fn page_query_validates_bounds() {
         page_size: Some(MAX_PAGE_SIZE + 1),
     };
     assert!(too_large.validate_and_normalize().is_err());
+}
+
+#[test]
+fn page_query_rejects_offset_overflow() {
+    // 超大 pageNo 不能让 offset 在 debug 下 panic 或在 release 下回绕。
+    let overflow_page = PageQuery {
+        page_no: Some(u64::MAX),
+        page_size: Some(2),
+    };
+
+    let err = overflow_page
+        .validate_and_normalize()
+        .expect_err("offset 溢出必须返回参数错误");
+    assert_eq!(err.code, ErrorCode::ParamInvalid);
 }
 
 #[test]
