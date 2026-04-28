@@ -1,0 +1,93 @@
+//! 请求上下文。
+//!
+//! 上下文保存 traceId、用户、租户、客户端等横切信息。handler、service、repository 和审计日志
+//! 必须通过该结构传递链路信息，避免每层重复解析请求头。
+
+use std::convert::Infallible;
+
+use axum::extract::FromRequestParts;
+use http::request::Parts;
+use serde::{Deserialize, Serialize};
+
+use crate::utils::id::generate_trace_id;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RequestContext {
+    /// 请求链路唯一标识，必须与响应体和 `X-Trace-Id` 响应头一致。
+    pub trace_id: String,
+    /// 租户标识，首版可以为空，后续多租户能力会使用该字段做数据隔离。
+    pub tenant_id: Option<String>,
+    /// 当前用户标识，匿名接口为空。
+    pub user_id: Option<String>,
+    /// 当前用户角色集合，供 service 层权限检查使用。
+    pub roles: Vec<String>,
+    /// 客户端 IP，供审计、风控和限流扩展使用。
+    pub client_ip: Option<String>,
+    /// 客户端 User-Agent，供审计和问题排查使用。
+    pub user_agent: Option<String>,
+    /// 鉴权类型，用于区分匿名、用户和系统任务调用。
+    pub auth_type: AuthType,
+    /// 是否已认证，避免调用方只依赖 `user_id` 是否为空做权限判断。
+    pub is_authenticated: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum AuthType {
+    /// 匿名请求，通常只允许访问显式开放接口。
+    Anonymous,
+    /// 终端用户请求。
+    User,
+    /// 系统任务或内部服务调用。
+    System,
+}
+
+impl RequestContext {
+    /// 构造匿名请求上下文。
+    ///
+    /// traceId 仍然必须存在，因为匿名接口同样需要日志、错误和响应链路关联。
+    pub fn anonymous(trace_id: impl Into<String>) -> Self {
+        Self {
+            trace_id: trace_id.into(),
+            tenant_id: None,
+            user_id: None,
+            roles: Vec::new(),
+            client_ip: None,
+            user_agent: None,
+            auth_type: AuthType::Anonymous,
+            is_authenticated: false,
+        }
+    }
+
+    /// 追加客户端信息。
+    ///
+    /// 中间件解析客户端 IP 和 User-Agent 后写入上下文，后续审计能力可以直接复用。
+    pub fn with_client_info(
+        mut self,
+        client_ip: Option<String>,
+        user_agent: Option<String>,
+    ) -> Self {
+        self.client_ip = client_ip;
+        self.user_agent = user_agent;
+        self
+    }
+}
+
+impl<S> FromRequestParts<S> for RequestContext
+where
+    S: Send + Sync,
+{
+    type Rejection = Infallible;
+
+    /// 从请求扩展中提取上下文。
+    ///
+    /// 如果上游中间件未写入上下文，则生成兜底 traceId，保证 handler 不需要处理缺失上下文。
+    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+        Ok(parts
+            .extensions
+            .get::<RequestContext>()
+            .cloned()
+            .unwrap_or_else(|| RequestContext::anonymous(generate_trace_id())))
+    }
+}
