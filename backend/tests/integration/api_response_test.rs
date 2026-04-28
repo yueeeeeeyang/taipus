@@ -25,6 +25,8 @@ fn success_response_uses_camel_case_and_positive_code() {
     assert_eq!(value["traceId"], "trace-1234");
     assert!(value.get("trace_id").is_none());
     assert!(value.get("timestamp").is_some());
+    assert_eq!(value["elapsedMs"], 0);
+    assert!(value.get("elapsed_ms").is_none());
 }
 
 #[test]
@@ -37,6 +39,7 @@ fn error_response_keeps_data_null_and_negative_code() {
     assert_eq!(value["message"], "请求参数不合法");
     assert!(value["data"].is_null());
     assert_eq!(value["traceId"], "trace-1234");
+    assert_eq!(value["elapsedMs"], 0);
 }
 
 #[tokio::test]
@@ -54,6 +57,7 @@ async fn app_error_response_uses_supplied_trace_id() {
     assert_eq!(value["code"], -500);
     assert_eq!(value["traceId"], "trace-error-1234");
     assert!(value["data"].is_null());
+    assert_eq!(value["elapsedMs"], 0);
 }
 
 #[test]

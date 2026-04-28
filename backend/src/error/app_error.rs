@@ -122,6 +122,7 @@ impl AppError {
             );
         }
         self.to_localized_api_response(ctx.trace_id.clone(), &ctx.locale, i18n)
+            .with_elapsed_ms(ctx.elapsed_ms())
             .with_status(StatusCode::OK)
     }
 }

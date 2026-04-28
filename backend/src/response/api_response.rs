@@ -30,6 +30,8 @@ where
     pub trace_id: String,
     /// 服务端生成响应的 UTC 时间，用于前后端排查时钟和缓存问题。
     pub timestamp: DateTime<Utc>,
+    /// 请求进入后端到响应体构造时的处理耗时，单位毫秒。
+    pub elapsed_ms: u64,
 }
 
 impl<T> ApiResponse<T>
@@ -46,7 +48,16 @@ where
             data: Some(data),
             trace_id: trace_id.into(),
             timestamp: now_utc(),
+            elapsed_ms: 0,
         }
+    }
+
+    /// 写入请求后端处理耗时。
+    ///
+    /// 真实请求应使用 `RequestContext::elapsed_ms` 计算；直接构造响应的测试或工具场景默认保持 0。
+    pub fn with_elapsed_ms(mut self, elapsed_ms: u64) -> Self {
+        self.elapsed_ms = elapsed_ms;
+        self
     }
 
     /// 使用指定 HTTP 状态码输出统一响应体。
@@ -73,6 +84,7 @@ impl ApiResponse<Value> {
             data: None,
             trace_id: trace_id.into(),
             timestamp: now_utc(),
+            elapsed_ms: 0,
         }
     }
 

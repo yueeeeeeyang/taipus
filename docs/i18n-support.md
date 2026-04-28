@@ -213,7 +213,8 @@ GET /api/v1/i18n/system_resources?locale=zh-CN&timeZone=Asia/Shanghai&platform=f
     }
   },
   "traceId": "trace-id",
-  "timestamp": "2026-04-28T00:00:00Z"
+  "timestamp": "2026-04-28T00:00:00Z",
+  "elapsedMs": 12
 }
 ```
 

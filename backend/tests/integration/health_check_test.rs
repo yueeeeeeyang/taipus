@@ -43,6 +43,7 @@ async fn live_check_returns_unified_success_response() {
     assert_eq!(body["code"], 200);
     assert_eq!(body["data"]["status"], "UP");
     assert!(body["traceId"].as_str().is_some());
+    assert!(body["elapsedMs"].as_u64().is_some());
 }
 
 #[tokio::test]

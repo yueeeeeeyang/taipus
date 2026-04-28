@@ -73,6 +73,7 @@ async fn not_found(
     let message = state
         .i18n
         .system_text(ErrorCode::ResourceNotFound.message_key(), &ctx.locale);
-    ApiResponse::error(ErrorCode::ResourceNotFound, message, ctx.trace_id)
+    ApiResponse::error(ErrorCode::ResourceNotFound, message, ctx.trace_id.clone())
+        .with_elapsed_ms(ctx.elapsed_ms())
         .with_status(StatusCode::OK)
 }

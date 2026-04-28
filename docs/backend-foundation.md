@@ -182,7 +182,7 @@ backend/
 | 配置加载 | `AppConfig` | 统一读取环境变量、配置文件和默认值，并在启动期完成必要字段校验。 |
 | 数据库连接池 | `DatabasePool` | 基于 SQLx 创建连接池，配置最大连接数、最小连接数、连接超时和空闲回收。 |
 | 数据库迁移 | `run_migrations` | 启动期按数据库类型选择 `migrations/mysql` 或 `migrations/postgres` 并执行 Refinery migration。 |
-| 统一响应 | `ApiResponse<T>` | 所有业务接口统一返回 `code`、`message`、`data`、`traceId`、`timestamp`。 |
+| 统一响应 | `ApiResponse<T>` | 所有业务接口统一返回 `code`、`message`、`data`、`traceId`、`timestamp`、`elapsedMs`。 |
 | 分页模型 | `PageQuery`、`PageResult<T>` | 统一处理 `pageNo`、`pageSize`、总数、总页数和是否存在下一页。 |
 | 统一错误 | `AppError`、`ErrorCode` | 统一封装业务错误、参数错误、权限错误、资源不存在、并发冲突和系统错误。 |
 | 请求上下文 | `RequestContext` | 统一保存追踪 ID、用户、租户、角色、客户端 IP、User-Agent 和追踪字段。 |
@@ -205,7 +205,8 @@ backend/
   "message": "ok",
   "data": {},
   "traceId": "trace-id",
-  "timestamp": "2026-04-28T00:00:00Z"
+  "timestamp": "2026-04-28T00:00:00Z",
+  "elapsedMs": 12
 }
 ```
 
@@ -218,6 +219,7 @@ backend/
 | `data` | `object/null/array` | 是 | 业务数据。错误响应固定为 `null`，无返回值成功响应可为 `{}`。 |
 | `traceId` | `string` | 是 | 请求链路唯一标识，由 `X-Trace-Id` 请求头透传或服务端生成。 |
 | `timestamp` | `string` | 是 | 服务端响应时间，使用 UTC ISO 8601 格式。 |
+| `elapsedMs` | `number` | 是 | 请求进入后端到响应体构造时的处理耗时，单位毫秒。 |
 
 只要业务 API 请求进入后端应用并由应用正常构造标准响应，HTTP 状态码必须固定为 `200`。前端、移动端和外部调用方必须通过响应体中的 `code` 判断业务成功、参数错误、权限错误、资源不存在、并发冲突或系统错误。健康检查接口是该规则的例外，必须按部署探针语义返回 HTTP `200` 或 `503`。
 
@@ -236,7 +238,8 @@ backend/
   "message": "请求参数不合法",
   "data": null,
   "traceId": "trace-id",
-  "timestamp": "2026-04-28T00:00:00Z"
+  "timestamp": "2026-04-28T00:00:00Z",
+  "elapsedMs": 12
 }
 ```
 
@@ -255,7 +258,8 @@ backend/
     "hasNext": false
   },
   "traceId": "trace-id",
-  "timestamp": "2026-04-28T00:00:00Z"
+  "timestamp": "2026-04-28T00:00:00Z",
+  "elapsedMs": 12
 }
 ```
 
@@ -414,14 +418,14 @@ backend/migrations/
 | `GET /health/live` | 存活检查，只验证进程可响应，不依赖数据库。 |
 | `GET /health/ready` | 就绪检查，验证数据库连接池和必要依赖可用。 |
 
-健康检查响应也使用统一响应结构，但 HTTP 状态码必须服务于部署探针语义：检查成功返回 HTTP `200`，检查失败返回 HTTP `503`。就绪检查失败时响应体必须返回负数业务码，并保留 `code`、`message`、`data`、`traceId`、`timestamp` 字段。数据库原始错误只能进入服务端日志，响应体只能返回稳定原因码。
+健康检查响应也使用统一响应结构，但 HTTP 状态码必须服务于部署探针语义：检查成功返回 HTTP `200`，检查失败返回 HTTP `503`。就绪检查失败时响应体必须返回负数业务码，并保留 `code`、`message`、`data`、`traceId`、`timestamp`、`elapsedMs` 字段。数据库原始错误只能进入服务端日志，响应体只能返回稳定原因码。
 
 ## 12. 测试与验收要求
 
 后端基础底座实现后必须至少覆盖以下测试场景：
 
 - `ApiResponse<T>` 成功响应序列化字段完整，字段名为 `camelCase`。
-- 错误响应 `data` 固定为 `null`，并携带稳定 `code`、`message`、`traceId` 和 `timestamp`。
+- 错误响应 `data` 固定为 `null`，并携带稳定 `code`、`message`、`traceId`、`timestamp` 和 `elapsedMs`。
 - 业务 API 错误响应 HTTP 状态码固定为 `200`，响应体 `code` 必须小于 `0`。
 - `AppError` 能正确映射到数字业务码，且业务 API 标准响应 HTTP 状态码固定为 `200`。
 - `X-Trace-Id` 缺失、合法、非法三种场景都能得到稳定响应头和响应体 `traceId`。

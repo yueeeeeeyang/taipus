@@ -19,8 +19,9 @@ pub async fn live(ctx: RequestContext) -> Response {
         json!({
             "status": "UP"
         }),
-        ctx.trace_id,
+        ctx.trace_id.clone(),
     )
+    .with_elapsed_ms(ctx.elapsed_ms())
     .with_status(StatusCode::OK)
 }
 
@@ -33,8 +34,9 @@ pub async fn ready(State(state): State<AppState>, ctx: RequestContext) -> Respon
                     "status": "READY",
                     "databaseType": database.database_type().as_str()
                 }),
-                ctx.trace_id,
+                ctx.trace_id.clone(),
             )
+            .with_elapsed_ms(ctx.elapsed_ms())
             .with_status(StatusCode::OK),
             Err(err) => {
                 let message = state
@@ -50,11 +52,12 @@ pub async fn ready(State(state): State<AppState>, ctx: RequestContext) -> Respon
                     "就绪检查数据库连接失败"
                 );
                 // ready 失败必须返回 HTTP 503，满足 Kubernetes、网关和负载均衡探针语义。
-                ApiResponse::error(ErrorCode::SystemError, message, ctx.trace_id)
+                ApiResponse::error(ErrorCode::SystemError, message, ctx.trace_id.clone())
                     .with_data(json!({
                         "status": "NOT_READY",
                         "reason": "database_unavailable"
                     }))
+                    .with_elapsed_ms(ctx.elapsed_ms())
                     .with_status(StatusCode::SERVICE_UNAVAILABLE)
             }
         },
@@ -63,11 +66,12 @@ pub async fn ready(State(state): State<AppState>, ctx: RequestContext) -> Respon
             let message = state
                 .i18n
                 .system_text("health.database_pool_missing", &ctx.locale);
-            ApiResponse::error(ErrorCode::SystemError, message, ctx.trace_id)
+            ApiResponse::error(ErrorCode::SystemError, message, ctx.trace_id.clone())
                 .with_data(json!({
                     "status": "NOT_READY",
                     "reason": "database_pool_missing"
                 }))
+                .with_elapsed_ms(ctx.elapsed_ms())
                 .with_status(StatusCode::SERVICE_UNAVAILABLE)
         }
     }

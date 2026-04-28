@@ -3,7 +3,7 @@
 //! 上下文保存 traceId、用户、租户、客户端等横切信息。handler、service、repository 和审计日志
 //! 必须通过该结构传递链路信息，避免每层重复解析请求头。
 
-use std::convert::Infallible;
+use std::{convert::Infallible, time::Instant};
 
 use axum::extract::FromRequestParts;
 use http::request::Parts;
@@ -14,6 +14,9 @@ use crate::utils::id::generate_trace_id;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RequestContext {
+    /// 请求进入后端时的单调时钟时间点，仅用于计算后端处理耗时，不参与序列化。
+    #[serde(skip, default = "Instant::now")]
+    pub request_started_at: Instant,
     /// 请求链路唯一标识，必须与响应体和 `X-Trace-Id` 响应头一致。
     pub trace_id: String,
     /// 租户标识，首版可以为空，后续多租户能力会使用该字段做数据隔离。
@@ -61,6 +64,7 @@ impl RequestContext {
     /// traceId 仍然必须存在，因为匿名接口同样需要日志、错误和响应链路关联。
     pub fn anonymous(trace_id: impl Into<String>) -> Self {
         Self {
+            request_started_at: Instant::now(),
             trace_id: trace_id.into(),
             tenant_id: None,
             user_id: None,
@@ -109,6 +113,17 @@ impl RequestContext {
     ) {
         self.time_zone = time_zone.into();
         self.requested_time_zone = requested_time_zone;
+    }
+
+    /// 返回当前请求在后端已消耗的毫秒数。
+    ///
+    /// 该值使用单调时钟计算，避免系统时间回拨影响接口响应中的耗时字段。
+    pub fn elapsed_ms(&self) -> u64 {
+        self.request_started_at
+            .elapsed()
+            .as_millis()
+            .try_into()
+            .unwrap_or(u64::MAX)
     }
 }
 

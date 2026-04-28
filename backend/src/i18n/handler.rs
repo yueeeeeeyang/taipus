@@ -38,7 +38,9 @@ pub async fn system_resources(
     );
 
     match result {
-        Ok(data) => ApiResponse::success(data, ctx.trace_id).with_status(StatusCode::OK),
+        Ok(data) => ApiResponse::success(data, ctx.trace_id.clone())
+            .with_elapsed_ms(ctx.elapsed_ms())
+            .with_status(StatusCode::OK),
         Err(err) => err.into_response_with_context(&ctx, &state.i18n),
     }
 }
