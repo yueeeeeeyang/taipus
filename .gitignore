@@ -1,4 +1,5 @@
 .DS_Store
+.cargo/
 /target/
 target/
 backend/target/
