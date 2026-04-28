@@ -74,6 +74,8 @@ backend/
     db/
       mod.rs
       executor.rs
+      entity.rs
+      repository.rs
       transaction.rs
     validation/
       mod.rs
@@ -184,6 +186,8 @@ backend/
 | --- | --- | --- |
 | 配置加载 | `StartupOptions`、`AppConfig` | 启动期支持显式配置文件，应用配置统一读取环境变量、配置文件和默认值，并完成必要字段校验。 |
 | 数据库连接池 | `DatabasePool` | 基于 SQLx 创建连接池，配置最大连接数、最小连接数、连接超时和空闲回收。 |
+| 实体基础字段 | `BaseFields`、`HasBaseFields` | Rust 不使用继承式基础类，业务实体通过组合基础字段并显式实现 trait 复用统一字段。 |
+| 写入结果判断 | `ensure_inserted`、`ensure_updated`、`ensure_deleted` | 统一把 repository 写入行数映射为成功、并发冲突或系统错误。 |
 | 数据库迁移 | `run_migrations` | 启动期按数据库类型选择 `migrations/mysql` 或 `migrations/postgres` 并执行 Refinery migration。 |
 | 统一响应 | `ApiResponse<T>` | 所有业务接口统一返回 `code`、`message`、`data`、`traceId`、`timestamp`、`elapsedMs`。 |
 | 分页模型 | `PageQuery`、`PageResult<T>` | 统一处理 `pageNo`、`pageSize`、总数、总页数和是否存在下一页。 |
@@ -373,6 +377,28 @@ backend/migrations/
 | `deleted_time` | `deleted_time` | `deletedTime` | 删除时间。 | 未删除时为空，逻辑删除时写入当前 UTC 时间。 |
 
 数据库列名必须使用 `snake_case`，Rust 持久化模型字段建议保持 `snake_case` 以匹配 SQLx 映射；对外 JSON DTO 必须使用 `camelCase`。后端模型不得直接把数据库列命名暴露为对外接口字段，必须通过 Serde 配置或 DTO 映射保持跨层语义一致。
+
+Rust 业务实体不得模拟 Java 风格 `BaseEntity` 继承。统一基础字段通过组合实现：
+
+```rust
+pub struct FormDefinition {
+    pub id: String,
+    pub name: String,
+    #[serde(flatten)]
+    #[sqlx(flatten)]
+    pub base: BaseFields,
+}
+```
+
+业务实体需要显式实现 `HasBaseFields`，需要修改基础字段的场景再实现 `HasBaseFieldsMut`。需要从 SQLx 查询结果映射的实体必须派生或实现 `sqlx::FromRow`，并在 `base` 字段上添加 `#[sqlx(flatten)]`，让 `version/deleted/created_by` 等数据库列映射到 `BaseFields`。不得为了基础字段复用引入过度泛型的通用 CRUD repository。
+
+repository 写入约定如下：
+
+- 新增 SQL 必须写入 `version = 1`、`deleted = FALSE`、创建字段和更新字段，并使用 `ensure_inserted` 校验影响行数。
+- 更新 SQL 必须包含 `version = version + 1`、更新字段、`WHERE id = ? AND version = ? AND deleted = FALSE`，并使用 `ensure_updated` 校验影响行数。
+- 逻辑删除 SQL 必须包含 `deleted = TRUE`、`deleted_by`、`deleted_time`、`version = version + 1`、`WHERE id = ? AND version = ? AND deleted = FALSE`，并使用 `ensure_deleted` 校验影响行数。
+- 查询方法默认过滤 `deleted = FALSE`；只有显式命名为 `*_include_deleted`、审计或管理场景的方法才允许包含已删除数据。
+- 业务 SQL 必须继续在各 repository 中显式编写，不允许动态拼接任意表名实现通用 CRUD。
 
 ## 10. 鉴权、权限、审计与请求上下文
 

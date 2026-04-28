@@ -35,6 +35,48 @@ fn business_translation_migration_exists_for_mysql_and_postgres() {
 }
 
 #[test]
+fn persistent_tables_include_unified_base_fields() {
+    // 当前所有已创建的持久化表都必须包含统一基础字段，避免后续业务模块字段语义漂移。
+    let migrations = [
+        include_str!("../../migrations/mysql/V1__init_foundation.sql"),
+        include_str!("../../migrations/postgres/V1__init_foundation.sql"),
+        include_str!("../../migrations/mysql/V3__create_business_translations.sql"),
+        include_str!("../../migrations/postgres/V3__create_business_translations.sql"),
+    ];
+    let required_columns = [
+        "version",
+        "deleted",
+        "created_by",
+        "created_time",
+        "updated_by",
+        "updated_time",
+        "deleted_by",
+        "deleted_time",
+    ];
+
+    for migration in migrations {
+        for column in required_columns {
+            assert!(
+                migration.contains(column),
+                "migration 缺少统一基础字段: {column}"
+            );
+        }
+    }
+}
+
+#[test]
+fn repository_sql_contract_keeps_version_and_logical_delete_guards() {
+    // repository 可以显式写 SQL，但更新、逻辑删除和默认查询的基础约束必须保持一致。
+    let repository = include_str!("../../src/i18n/business_translation_repository.rs");
+
+    assert!(repository.contains("WHERE deleted = FALSE"));
+    assert!(repository.contains("SET deleted = TRUE, version = "));
+    assert!(repository.contains("deleted_by = "));
+    assert!(repository.contains("deleted_time = CURRENT_TIMESTAMP"));
+    assert!(repository.contains("FOR UPDATE"));
+}
+
+#[test]
 fn migration_versions_are_refinery_i32_and_paired() {
     // Refinery 0.8 会把文件名中的版本号解析为 i32；超出范围会在 embed_migrations 阶段 panic。
     let mysql_versions = migration_versions("migrations/mysql");

@@ -4,8 +4,9 @@
 
 use std::collections::BTreeMap;
 
-use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+
+use crate::db::entity::{BaseFields, HasBaseFields, HasBaseFieldsMut};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -22,22 +23,23 @@ pub struct BusinessTranslation {
     pub locale: String,
     /// 翻译文本。
     pub text_value: String,
-    /// 乐观锁版本号。
-    pub version: i64,
-    /// 逻辑删除标记。
-    pub deleted: bool,
-    /// 创建人标识。
-    pub created_by: String,
-    /// 创建时间。
-    pub created_time: DateTime<Utc>,
-    /// 最后更新人标识。
-    pub updated_by: String,
-    /// 最后更新时间。
-    pub updated_time: DateTime<Utc>,
-    /// 删除人标识。
-    pub deleted_by: Option<String>,
-    /// 删除时间。
-    pub deleted_time: Option<DateTime<Utc>>,
+    /// 统一基础字段，对外 JSON 通过 flatten 保持 `version/createdBy` 等字段平铺。
+    #[serde(flatten)]
+    pub base: BaseFields,
+}
+
+impl HasBaseFields for BusinessTranslation {
+    /// 返回业务翻译的统一基础字段。
+    fn base_fields(&self) -> &BaseFields {
+        &self.base
+    }
+}
+
+impl HasBaseFieldsMut for BusinessTranslation {
+    /// 返回业务翻译的统一基础字段可变引用。
+    fn base_fields_mut(&mut self) -> &mut BaseFields {
+        &mut self.base
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
