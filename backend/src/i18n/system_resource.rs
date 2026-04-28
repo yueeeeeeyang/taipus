@@ -7,6 +7,8 @@ use std::collections::BTreeMap;
 
 use serde::Serialize;
 
+use crate::i18n::time_zone::DateTimeFormatOptions;
+
 #[derive(Debug, Clone, Copy)]
 pub struct SystemResourceKey {
     /// 对前端输出的 key，使用 camelCase。
@@ -20,10 +22,14 @@ pub struct SystemResourceKey {
 pub struct SystemResourcesResponse {
     /// 最终返回资源所使用的 locale。
     pub locale: String,
+    /// 最终返回资源所使用的 IANA time zone。
+    pub time_zone: String,
     /// 后续资源缺失时可使用的 fallback locale 链路。
     pub fallback_locales: Vec<String>,
     /// 系统资源版本，用于前端和移动端缓存失效。
     pub version: String,
+    /// 前端可直接传给 `Intl.DateTimeFormat` 的日期时间格式 profile。
+    pub datetime_formats: BTreeMap<String, DateTimeFormatOptions>,
     /// 按 namespace 分组后的资源。
     pub resources: BTreeMap<String, BTreeMap<String, String>>,
 }

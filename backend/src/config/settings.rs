@@ -5,7 +5,9 @@
 
 use std::{env, str::FromStr, time::Duration};
 
-use crate::{db::executor::DatabaseType, error::app_error::AppError};
+use crate::{
+    db::executor::DatabaseType, error::app_error::AppError, i18n::time_zone::canonicalize_time_zone,
+};
 
 #[derive(Debug, Clone)]
 pub struct AppConfig {
@@ -51,6 +53,10 @@ pub struct I18nConfig {
     pub default_locale: String,
     /// 当前系统允许协商和返回的语言列表。
     pub supported_locales: Vec<String>,
+    /// 配置文件指定的默认 IANA time zone，业务代码禁止写死默认时区。
+    pub default_time_zone: String,
+    /// 当前系统允许协商和返回的 IANA time zone 列表。
+    pub supported_time_zones: Vec<String>,
     /// 系统多语言资源版本，用于前端和移动端缓存失效。
     pub system_resource_version: String,
 }
@@ -101,11 +107,18 @@ impl AppConfig {
             .ok_or_else(|| AppError::param_invalid("I18N_DEFAULT_LOCALE 是必填配置"))?;
         let supported_locales =
             parse_locale_list(read_env("I18N_SUPPORTED_LOCALES"), &default_locale)?;
+        // 默认时区同样必须来自配置，保证跨地区部署和用户展示行为可控。
+        let default_time_zone = read_env("I18N_DEFAULT_TIME_ZONE")
+            .ok_or_else(|| AppError::param_invalid("I18N_DEFAULT_TIME_ZONE 是必填配置"))?;
+        let supported_time_zones =
+            parse_time_zone_list(read_env("I18N_SUPPORTED_TIME_ZONES"), &default_time_zone)?;
         let system_resource_version =
             read_env("I18N_SYSTEM_RESOURCE_VERSION").unwrap_or_else(|| "202604280001".to_string());
         let mut i18n = I18nConfig {
             default_locale,
             supported_locales,
+            default_time_zone,
+            supported_time_zones,
             system_resource_version,
         };
         canonicalize_i18n_config(&mut i18n)?;
@@ -149,6 +162,12 @@ impl AppConfig {
             i18n: I18nConfig {
                 default_locale: "zh-CN".to_string(),
                 supported_locales: vec!["zh-CN".to_string(), "en-US".to_string()],
+                default_time_zone: "Asia/Shanghai".to_string(),
+                supported_time_zones: vec![
+                    "Asia/Shanghai".to_string(),
+                    "UTC".to_string(),
+                    "America/New_York".to_string(),
+                ],
                 system_resource_version: "test-version".to_string(),
             },
         }
@@ -228,6 +247,31 @@ fn parse_locale_list(value: Option<String>, default_locale: &str) -> Result<Vec<
     Ok(locales)
 }
 
+/// 解析逗号分隔的 time zone 列表。
+///
+/// 未配置支持时区时，只启用配置默认时区，避免隐式把某个固定地区加入可用范围。
+fn parse_time_zone_list(
+    value: Option<String>,
+    default_time_zone: &str,
+) -> Result<Vec<String>, AppError> {
+    let time_zones = value
+        .map(|raw| {
+            raw.split(',')
+                .map(str::trim)
+                .filter(|time_zone| !time_zone.is_empty())
+                .map(ToOwned::to_owned)
+                .collect::<Vec<_>>()
+        })
+        .filter(|time_zones| !time_zones.is_empty())
+        .unwrap_or_else(|| vec![default_time_zone.to_string()]);
+
+    for time_zone in &time_zones {
+        canonicalize_time_zone(time_zone)?;
+    }
+
+    Ok(time_zones)
+}
+
 fn validate_i18n_config(config: &I18nConfig) -> Result<(), AppError> {
     if !is_valid_locale_tag(&config.default_locale) {
         return Err(AppError::param_invalid(
@@ -257,6 +301,19 @@ fn validate_i18n_config(config: &I18nConfig) -> Result<(), AppError> {
             "I18N_SUPPORTED_LOCALES 必须包含 I18N_DEFAULT_LOCALE",
         ));
     }
+    canonicalize_time_zone(&config.default_time_zone)?;
+    for time_zone in &config.supported_time_zones {
+        canonicalize_time_zone(time_zone)?;
+    }
+    if !config
+        .supported_time_zones
+        .iter()
+        .any(|time_zone| time_zone == &config.default_time_zone)
+    {
+        return Err(AppError::param_invalid(
+            "I18N_SUPPORTED_TIME_ZONES 必须包含 I18N_DEFAULT_TIME_ZONE",
+        ));
+    }
     if config.system_resource_version.trim().is_empty() {
         return Err(AppError::param_invalid(
             "I18N_SYSTEM_RESOURCE_VERSION 不能为空",
@@ -282,6 +339,16 @@ fn canonicalize_i18n_config(config: &mut I18nConfig) -> Result<(), AppError> {
         }
     }
     config.supported_locales = canonical_supported_locales;
+
+    config.default_time_zone = canonicalize_time_zone(&config.default_time_zone)?;
+    let mut canonical_supported_time_zones = Vec::new();
+    for time_zone in &config.supported_time_zones {
+        let canonical = canonicalize_time_zone(time_zone)?;
+        if !canonical_supported_time_zones.contains(&canonical) {
+            canonical_supported_time_zones.push(canonical);
+        }
+    }
+    config.supported_time_zones = canonical_supported_time_zones;
     Ok(())
 }
 
@@ -371,7 +438,7 @@ fn validate_url_matches_database_type(
 mod tests {
     use super::{
         I18nConfig, canonicalize_i18n_config, parse_bool_env, parse_locale_list,
-        validate_i18n_config,
+        parse_time_zone_list, validate_i18n_config,
     };
 
     #[test]
@@ -410,11 +477,29 @@ mod tests {
     }
 
     #[test]
+    fn parse_time_zone_list_defaults_to_config_default_time_zone() {
+        // 未显式配置支持时区时，只启用默认时区，保证默认时区来源仍然是配置项。
+        let time_zones = parse_time_zone_list(None, "Asia/Shanghai").unwrap();
+        assert_eq!(time_zones, vec!["Asia/Shanghai"]);
+    }
+
+    #[test]
+    fn parse_time_zone_list_rejects_invalid_time_zone() {
+        // time zone 会进入响应头和前端缓存 key，非法值必须在启动期拦截。
+        assert!(
+            parse_time_zone_list(Some("Asia/Shanghai,Bad/Zone".to_string()), "Asia/Shanghai")
+                .is_err()
+        );
+    }
+
+    #[test]
     fn validate_i18n_config_accepts_loaded_resource_locales() {
         // 配置语言必须和已加载资源文件一致，合法资源语言应正常通过启动校验。
         let config = I18nConfig {
             default_locale: "zh-CN".to_string(),
             supported_locales: vec!["zh-CN".to_string(), "en-US".to_string()],
+            default_time_zone: "Asia/Shanghai".to_string(),
+            supported_time_zones: vec!["Asia/Shanghai".to_string(), "UTC".to_string()],
             system_resource_version: "test-version".to_string(),
         };
 
@@ -427,6 +512,22 @@ mod tests {
         let config = I18nConfig {
             default_locale: "fr-FR".to_string(),
             supported_locales: vec!["fr-FR".to_string()],
+            default_time_zone: "Asia/Shanghai".to_string(),
+            supported_time_zones: vec!["Asia/Shanghai".to_string()],
+            system_resource_version: "test-version".to_string(),
+        };
+
+        assert!(validate_i18n_config(&config).is_err());
+    }
+
+    #[test]
+    fn validate_i18n_config_rejects_time_zone_without_default() {
+        // 支持时区列表必须包含默认时区，否则 fallback 结果可能不是允许返回值。
+        let config = I18nConfig {
+            default_locale: "zh-CN".to_string(),
+            supported_locales: vec!["zh-CN".to_string()],
+            default_time_zone: "Asia/Shanghai".to_string(),
+            supported_time_zones: vec!["UTC".to_string()],
             system_resource_version: "test-version".to_string(),
         };
 
@@ -439,6 +540,8 @@ mod tests {
         let mut config = I18nConfig {
             default_locale: "en-us".to_string(),
             supported_locales: vec!["zh-cn".to_string(), "en-us".to_string()],
+            default_time_zone: "Asia/Shanghai".to_string(),
+            supported_time_zones: vec!["Asia/Shanghai".to_string(), "UTC".to_string()],
             system_resource_version: "test-version".to_string(),
         };
 
@@ -455,10 +558,29 @@ mod tests {
         let config = I18nConfig {
             default_locale: "en-us".to_string(),
             supported_locales: vec!["en-us".to_string()],
+            default_time_zone: "Asia/Shanghai".to_string(),
+            supported_time_zones: vec!["Asia/Shanghai".to_string()],
             system_resource_version: "test-version".to_string(),
         };
 
         assert!(validate_i18n_config(&config).is_err());
+    }
+
+    #[test]
+    fn canonicalize_i18n_config_deduplicates_time_zones() {
+        // 时区列表规范化后要去重，避免响应缓存 key 和配置展示出现重复项。
+        let mut config = I18nConfig {
+            default_locale: "zh-CN".to_string(),
+            supported_locales: vec!["zh-CN".to_string()],
+            default_time_zone: "Asia/Shanghai".to_string(),
+            supported_time_zones: vec!["Asia/Shanghai".to_string(), "Asia/Shanghai".to_string()],
+            system_resource_version: "test-version".to_string(),
+        };
+
+        canonicalize_i18n_config(&mut config).unwrap();
+
+        assert_eq!(config.supported_time_zones, vec!["Asia/Shanghai"]);
+        assert!(validate_i18n_config(&config).is_ok());
     }
 }
 

@@ -43,6 +43,15 @@ async fn system_resources_return_requested_locale_resources() {
 
     let body = read_json(response).await;
     assert_eq!(body["data"]["locale"], "en-US");
+    assert_eq!(body["data"]["timeZone"], "Asia/Shanghai");
+    assert_eq!(
+        body["data"]["datetimeFormats"]["dateTimeShort"]["dateStyle"],
+        "short"
+    );
+    assert_eq!(
+        body["data"]["datetimeFormats"]["dateTimeShort"]["timeStyle"],
+        "short"
+    );
     assert_eq!(body["data"]["resources"]["common"]["confirm"], "Confirm");
     assert_eq!(
         body["data"]["resources"]["menu"]["systemSettings"],
@@ -72,6 +81,13 @@ async fn locale_header_controls_request_context_locale() {
             .and_then(|value| value.to_str().ok()),
         Some("en-US")
     );
+    assert_eq!(
+        response
+            .headers()
+            .get("content-time-zone")
+            .and_then(|value| value.to_str().ok()),
+        Some("Asia/Shanghai")
+    );
 }
 
 #[tokio::test]
@@ -96,6 +112,83 @@ async fn accept_language_continues_after_unsupported_candidate() {
             .and_then(|value| value.to_str().ok()),
         Some("en-US")
     );
+}
+
+#[tokio::test]
+async fn time_zone_query_overrides_header() {
+    // timeZone query 显式参数优先级最高，用于用户临时切换展示时区。
+    let app = build_router(app_state_without_database());
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/i18n/system_resources?timeZone=America%2FNew_York&platform=frontend&namespaces=common")
+                .header("X-Time-Zone", "UTC")
+                .body(Body::empty())
+                .expect("测试请求必须可构造"),
+        )
+        .await
+        .expect("系统资源请求必须可执行");
+
+    assert_eq!(
+        response
+            .headers()
+            .get("content-time-zone")
+            .and_then(|value| value.to_str().ok()),
+        Some("America/New_York")
+    );
+
+    let body = read_json(response).await;
+    assert_eq!(body["data"]["timeZone"], "America/New_York");
+}
+
+#[tokio::test]
+async fn time_zone_header_controls_request_context_time_zone() {
+    // 无 query 参数时，X-Time-Zone 必须参与协商并回写响应头。
+    let app = build_router(app_state_without_database());
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/health/live")
+                .header("X-Time-Zone", "America/New_York")
+                .body(Body::empty())
+                .expect("测试请求必须可构造"),
+        )
+        .await
+        .expect("健康检查请求必须可执行");
+
+    assert_eq!(
+        response
+            .headers()
+            .get("content-time-zone")
+            .and_then(|value| value.to_str().ok()),
+        Some("America/New_York")
+    );
+}
+
+#[tokio::test]
+async fn unsupported_time_zone_falls_back_to_config_default_time_zone() {
+    // 非法或不支持的时区不能进入响应头，必须降级到配置默认时区。
+    let app = build_router(app_state_without_database());
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/i18n/system_resources?timeZone=Bad/Zone&platform=frontend&namespaces=common")
+                .body(Body::empty())
+                .expect("测试请求必须可构造"),
+        )
+        .await
+        .expect("系统资源请求必须可执行");
+
+    assert_eq!(
+        response
+            .headers()
+            .get("content-time-zone")
+            .and_then(|value| value.to_str().ok()),
+        Some("Asia/Shanghai")
+    );
+
+    let body = read_json(response).await;
+    assert_eq!(body["data"]["timeZone"], "Asia/Shanghai");
 }
 
 #[tokio::test]

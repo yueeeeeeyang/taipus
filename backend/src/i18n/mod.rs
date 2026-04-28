@@ -9,3 +9,4 @@ pub mod locale;
 pub mod route;
 pub mod service;
 pub mod system_resource;
+pub mod time_zone;

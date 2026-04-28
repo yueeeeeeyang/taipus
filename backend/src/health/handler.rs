@@ -44,6 +44,7 @@ pub async fn ready(State(state): State<AppState>, ctx: RequestContext) -> Respon
                     code = ErrorCode::SystemError.as_i32(),
                     trace_id = %ctx.trace_id,
                     locale = %ctx.locale,
+                    time_zone = %ctx.time_zone,
                     database_type = %database.database_type(),
                     error = %err,
                     "就绪检查数据库连接失败"

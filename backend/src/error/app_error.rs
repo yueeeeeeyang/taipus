@@ -115,6 +115,7 @@ impl AppError {
                 code = self.code.as_i32(),
                 trace_id = %ctx.trace_id,
                 locale = %ctx.locale,
+                time_zone = %ctx.time_zone,
                 internal_message,
                 alert = self.alert,
                 "应用错误"

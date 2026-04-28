@@ -6,6 +6,8 @@
 use http::{HeaderMap, Uri, header::ACCEPT_LANGUAGE};
 use serde::{Deserialize, Serialize};
 
+use crate::utils::query::query_param;
+
 pub const LOCALE_HEADER: &str = "x-locale";
 pub const LOCALE_HEADER_CANONICAL: &str = "X-Locale";
 
@@ -142,17 +144,7 @@ pub fn is_valid_locale_tag(value: &str) -> bool {
 }
 
 fn query_locale(uri: &Uri) -> Option<String> {
-    uri.query().and_then(|query| {
-        query.split('&').find_map(|pair| {
-            let mut parts = pair.splitn(2, '=');
-            match (parts.next(), parts.next()) {
-                (Some("locale"), Some(value)) if !value.trim().is_empty() => {
-                    Some(value.trim().to_string())
-                }
-                _ => None,
-            }
-        })
-    })
+    query_param(uri, "locale")
 }
 
 fn header_locale(headers: &HeaderMap, header_name: &str) -> Option<String> {

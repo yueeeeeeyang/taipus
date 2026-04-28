@@ -24,6 +24,11 @@ pub async fn access_log_middleware(request: Request<Body>, next: Next) -> Respon
         .get::<RequestContext>()
         .map(|ctx| ctx.locale.clone())
         .unwrap_or_else(|| "und".to_string());
+    let time_zone = request
+        .extensions()
+        .get::<RequestContext>()
+        .map(|ctx| ctx.time_zone.clone())
+        .unwrap_or_else(|| "UTC".to_string());
 
     let response = next.run(request).await;
     let status = response.status().as_u16();
@@ -37,6 +42,7 @@ pub async fn access_log_middleware(request: Request<Body>, next: Next) -> Respon
         elapsed_ms,
         %trace_id,
         %locale,
+        %time_zone,
         "HTTP 请求完成"
     );
 

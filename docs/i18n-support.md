@@ -10,6 +10,7 @@
 - **便捷接入**：后端业务模块通过统一 `I18nService`、`LocaleResolver`、错误消息 key 和业务翻译模型接入多语言能力，避免各模块重复解析语言和拼装文案。
 - **边界清晰**：系统多语言和业务数据多语言必须分别建模、分别存储、分别缓存，避免把用户录入内容混入系统文案资源。
 - **兼容前端**：前端和移动端可以继续使用成熟 i18n 客户端库，但正式翻译资源必须来自后端分发接口。
+- **地区化时间**：后端统一管理 locale、time zone 和日期时间格式 profile，接口原始时间仍保持 UTC ISO 8601，由前端和移动端按展示上下文格式化。
 - **可观测与可维护**：缺失翻译、fallback 命中、资源版本、请求语言和最终语言必须可记录、可排查、可测试。
 
 ## 2. 术语与分类
@@ -50,6 +51,26 @@
 - 响应头必须回写最终采用的语言，例如 `Content-Language: zh-CN`。
 - `RequestContext` 后续需要增加 `locale` 和 `requestedLocale`，分别表示最终语言和调用方原始期望语言。
 - 缓存 key 必须包含最终 locale，避免不同语言响应互相污染。
+
+## 4.1 时区标识与时间格式化
+
+时区标识统一使用 IANA time zone，例如 `Asia/Shanghai`、`UTC`、`America/New_York`。默认时区必须通过配置文件指定，例如 `I18N_DEFAULT_TIME_ZONE=Asia/Shanghai`，不允许在业务代码或接口逻辑中写死默认展示时区。
+
+请求时区选择优先级固定如下：
+
+1. 显式请求参数，例如 `timeZone=Asia/Shanghai`。
+2. 请求头 `X-Time-Zone`。
+3. 当前登录用户的时区偏好。
+4. 配置文件指定的系统默认时区。
+
+时间处理规则如下：
+
+- 数据库、审计字段、标准响应 `timestamp`、业务接口 `createdTime`/`updatedTime` 等原始时间字段继续使用 UTC ISO 8601。
+- `TimeZoneResolver` 负责解析、规范化、校验和 fallback，不允许 handler 或 service 自行解析请求时区。
+- 不支持或非法的 time zone 必须 fallback 到配置文件指定的默认时区，并记录降级事件。
+- 响应头必须回写最终采用的时区，例如 `Content-Time-Zone: Asia/Shanghai`。
+- `RequestContext` 需要包含 `timeZone`、`requestedTimeZone` 和后续用户偏好 `timeZonePreference`。
+- 系统资源接口下发 `datetimeFormats`，前端和移动端使用 `Intl.DateTimeFormat(locale, { timeZone, ...profile })` 展示本地化时间。
 
 ## 5. 系统多语言方案
 
@@ -95,6 +116,8 @@ form.validation.required
 | --- | --- | --- |
 | `I18N_DEFAULT_LOCALE` | 是 | 配置默认语言，业务代码不得写死默认 locale。 |
 | `I18N_SUPPORTED_LOCALES` | 否 | 逗号分隔的支持语言列表；未配置时只启用默认语言。 |
+| `I18N_DEFAULT_TIME_ZONE` | 是 | 配置默认 IANA time zone，业务代码不得写死默认展示时区。 |
+| `I18N_SUPPORTED_TIME_ZONES` | 否 | 逗号分隔的支持时区列表；未配置时只启用默认时区。 |
 | `I18N_SYSTEM_RESOURCE_VERSION` | 否 | 系统资源版本；未配置时使用当前后端内置版本。 |
 
 ## 6. 业务数据多语言方案
@@ -135,18 +158,21 @@ form.validation.required
 | --- | --- |
 | `Locale` | 表示规范化后的语言标识，负责校验支持范围。 |
 | `LocaleResolver` | 从请求参数、`X-Locale`、用户偏好和 `Accept-Language` 中解析最终语言。 |
+| `TimeZoneResolver` | 从请求参数、`X-Time-Zone` 和用户偏好中解析最终展示时区。 |
 | `I18nService` | 渲染系统文本、加载系统资源、查询业务翻译和执行 fallback。 |
 | `SystemMessageKey` | 系统文本 key 的稳定枚举或常量集合。 |
 | `BusinessTranslation` | 业务翻译持久化模型。 |
 | `LocalizedText<T>` | 表示带翻译状态的数据包装，例如当前值、目标语言、来源语言和是否缺失。 |
+| `TimeDisplayContext` | 表示前端展示时间所需的 locale、time zone 和日期时间格式 profile。 |
 
 后端接入规则如下：
 
 - handler 不直接读取 `Accept-Language` 或 `X-Locale`，统一从 `RequestContext` 获取 locale。
+- handler 不直接读取 `X-Time-Zone`，统一从 `RequestContext` 获取 time zone。
 - service 层负责决定哪些业务字段需要多语言，并调用 `I18nService` 或 repository 查询翻译。
 - repository 层负责按资源维度批量查询业务翻译，避免列表接口出现 N+1 查询。
 - `AppError` 后续必须携带 `messageKey`，由统一错误响应转换层按 locale 渲染。
-- 后端日志和审计记录必须包含最终 locale，便于定位语言协商和翻译缺失问题。
+- 后端日志和审计记录必须包含最终 locale 和 time zone，便于定位语言协商、时区协商和翻译缺失问题。
 
 ## 8. 接口契约
 
@@ -155,7 +181,7 @@ form.validation.required
 系统资源接口用于前端和移动端拉取固定文本资源。
 
 ```text
-GET /api/v1/i18n/system_resources?locale=zh-CN&platform=frontend&namespaces=common,menu
+GET /api/v1/i18n/system_resources?locale=zh-CN&timeZone=Asia/Shanghai&platform=frontend&namespaces=common,menu
 ```
 
 标准响应示例：
@@ -166,8 +192,16 @@ GET /api/v1/i18n/system_resources?locale=zh-CN&platform=frontend&namespaces=comm
   "message": "ok",
   "data": {
     "locale": "zh-CN",
+    "timeZone": "Asia/Shanghai",
     "fallbackLocales": ["zh-CN"],
     "version": "202604280001",
+    "datetimeFormats": {
+      "dateShort": { "dateStyle": "short" },
+      "dateMedium": { "dateStyle": "medium" },
+      "timeShort": { "timeStyle": "short" },
+      "dateTimeShort": { "dateStyle": "short", "timeStyle": "short" },
+      "dateTimeMedium": { "dateStyle": "medium", "timeStyle": "short" }
+    },
     "resources": {
       "common": {
         "confirm": "确认",
@@ -189,6 +223,8 @@ GET /api/v1/i18n/system_resources?locale=zh-CN&platform=frontend&namespaces=comm
 - `namespaces` 为空时返回该 platform 的必要基础资源，不默认返回所有资源。
 - `version` 用于客户端缓存和灰度发布，资源更新后必须变化。
 - 未支持的 locale 必须返回 fallback 后的资源，并在 `fallbackLocales` 中体现。
+- `timeZone` 用于前端和移动端本地化展示时间，不改变接口原始 UTC 时间字段。
+- `datetimeFormats` 使用前端 `Intl.DateTimeFormat` 可消费的 camelCase 选项。
 
 ### 8.2 业务数据查询接口
 
@@ -231,11 +267,12 @@ GET /api/v1/i18n/system_resources?locale=zh-CN&platform=frontend&namespaces=comm
 
 - 应用启动时读取用户语言偏好或浏览器语言，并请求系统资源接口。
 - 将接口返回的 `resources` 注入 `i18next/react-i18next`。
+- 将接口返回的 `timeZone` 和 `datetimeFormats` 交给 `Intl.DateTimeFormat` 或统一时间组件使用。
 - 语言切换时重新请求后端资源，并刷新当前页面依赖的业务数据。
 - 前端本地只保留启动失败、网络不可用等极少量兜底文案，不维护完整正式翻译源。
 - 前端提交业务数据翻译时，必须按后端字段白名单和 locale 规则提交，不自行发明翻译结构。
 
-前端缓存必须绑定 `locale + platform + namespaces + version`。当后端资源版本变化时，客户端必须丢弃旧资源并重新加载。
+前端缓存必须绑定 `locale + timeZone + platform + namespaces + version`。当后端资源版本变化或用户切换语言/时区时，客户端必须丢弃旧资源并重新加载。
 
 ## 10. 缓存、权限与审计
 
@@ -256,8 +293,10 @@ GET /api/v1/i18n/system_resources?locale=zh-CN&platform=frontend&namespaces=comm
 
 - `X-Locale`、用户偏好、`Accept-Language` 和默认语言优先级正确。
 - 不支持的 locale 能 fallback 到配置默认语言，并回写正确 `Content-Language`。
+- 不支持的 time zone 能 fallback 到配置默认时区，并回写正确 `Content-Time-Zone`。
 - 后端错误信息能按 locale 输出，数字 `code` 保持不变。
 - 系统资源接口按 platform、namespace、locale 和 version 返回稳定结构。
+- 系统资源接口返回 `timeZone` 和 `datetimeFormats`，且标准响应 `timestamp` 继续保持 UTC ISO 8601。
 - 前端固定文本资源来自后端接口，不依赖独立正式翻译源。
 - 业务数据缺失目标语言时按 fallback 返回，并标记翻译缺失。
 - 业务翻译写入校验 locale、字段白名单、权限和乐观锁。

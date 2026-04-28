@@ -7,6 +7,7 @@ publish = false
 [dependencies]
 axum = { version = "0.8.9", features = ["macros"] }
 chrono = { version = "0.4", features = ["serde"] }
+chrono-tz = "0.10"
 dotenvy = "0.15"
 http = "1"
 refinery = { version = "0.8", features = ["mysql", "postgres"] }

@@ -23,7 +23,7 @@
 - 兼容数据库：PostgreSQL。
 - 序列化：Serde。
 - 日志与追踪：`tracing` 体系。
-- 时间类型：统一使用 UTC 时间存储，对外输出 ISO 8601 字符串。
+- 时间类型：统一使用 UTC 时间存储，对外输出 ISO 8601 字符串；面向用户展示的地区化时间格式通过 locale、time zone 和前端 `Intl.DateTimeFormat` profile 处理。
 
 基础约束如下：
 
@@ -93,6 +93,7 @@ backend/
       route.rs
       handler.rs
       system_resource.rs
+      time_zone.rs
       business_translation.rs
     modules/
       mod.rs
@@ -186,7 +187,7 @@ backend/
 | 统一错误 | `AppError`、`ErrorCode` | 统一封装业务错误、参数错误、权限错误、资源不存在、并发冲突和系统错误。 |
 | 请求上下文 | `RequestContext` | 统一保存追踪 ID、用户、租户、角色、客户端 IP、User-Agent 和追踪字段。 |
 | 参数校验 | `ValidateExt` | 对请求 DTO 执行显式校验，禁止依赖数据库错误表达业务校验失败。 |
-| 时间工具 | `time` | 统一获取当前 UTC 时间和格式化输出，避免业务代码各自处理时区。 |
+| 时间工具 | `time` | 统一获取当前 UTC 时间；地区化展示格式由 i18n time zone 上下文和前端格式化 profile 处理。 |
 | ID 工具 | `id` | 统一生成业务 ID 或 `traceId`，避免不同模块使用不一致的 ID 策略。 |
 | 日志追踪 | `tracing` | 所有请求日志、错误日志、审计日志必须携带 `traceId`。 |
 | 健康检查 | `health` | 提供存活检查和就绪检查，就绪检查必须覆盖数据库连接。 |

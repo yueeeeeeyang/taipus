@@ -32,6 +32,7 @@ pub async fn system_resources(
 ) -> Response {
     let result = state.i18n.system_resources(
         &ctx.locale,
+        &ctx.time_zone,
         query.platform.as_deref(),
         query.namespaces.as_deref(),
     );

@@ -32,6 +32,12 @@ pub struct RequestContext {
     pub requested_locale: Option<String>,
     /// 用户偏好 locale，后续真实鉴权接入后由用户设置写入。
     pub locale_preference: Option<String>,
+    /// 最终采用的 IANA time zone，由多语言中间件按固定优先级解析。
+    pub time_zone: String,
+    /// 调用方原始请求的 time zone，可能来自 query 或 `X-Time-Zone`。
+    pub requested_time_zone: Option<String>,
+    /// 用户偏好 time zone，后续真实鉴权接入后由用户设置写入。
+    pub time_zone_preference: Option<String>,
     /// 鉴权类型，用于区分匿名、用户和系统任务调用。
     pub auth_type: AuthType,
     /// 是否已认证，避免调用方只依赖 `user_id` 是否为空做权限判断。
@@ -64,6 +70,9 @@ impl RequestContext {
             locale: "und".to_string(),
             requested_locale: None,
             locale_preference: None,
+            time_zone: "UTC".to_string(),
+            requested_time_zone: None,
+            time_zone_preference: None,
             auth_type: AuthType::Anonymous,
             is_authenticated: false,
         }
@@ -88,6 +97,18 @@ impl RequestContext {
     pub fn set_locale(&mut self, locale: impl Into<String>, requested_locale: Option<String>) {
         self.locale = locale.into();
         self.requested_locale = requested_locale;
+    }
+
+    /// 写入时区协商结果。
+    ///
+    /// locale 中间件必须在 handler 执行前调用该方法，保证响应头、资源接口和日志使用同一时区。
+    pub fn set_time_zone(
+        &mut self,
+        time_zone: impl Into<String>,
+        requested_time_zone: Option<String>,
+    ) {
+        self.time_zone = time_zone.into();
+        self.requested_time_zone = requested_time_zone;
     }
 }
 
