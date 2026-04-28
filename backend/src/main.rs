@@ -3,7 +3,7 @@
 //! `main.rs` 只编排启动顺序，不承载业务逻辑。这样可以保证配置、日志、数据库、迁移和路由装配
 //! 都有明确的失败边界，便于后续接入部署探针和启动期观测。
 
-use std::net::SocketAddr;
+use std::{net::SocketAddr, time::Instant};
 
 use taipus_backend::{
     AppConfig, AppError, AppState,
@@ -31,6 +31,7 @@ async fn main() {
 ///
 /// 该流程与文档保持一致：配置、日志、数据库、迁移、状态、路由和监听必须顺序执行。
 async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let startup_started_at = Instant::now();
     let startup_options = load_startup_config()?;
     init_tracing_from_env()?;
     if let Some(config_path) = startup_options.config_path() {
@@ -48,8 +49,9 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let addr: SocketAddr = format!("{}:{}", config.server.host, config.server.port).parse()?;
     let listener = TcpListener::bind(addr).await?;
     let app = build_router(AppState::new(config, Some(database)));
+    let startup_elapsed_ms = startup_started_at.elapsed().as_millis();
 
-    info!(%addr, "后端服务开始监听");
+    info!(%addr, startup_elapsed_ms, "后端服务开始监听");
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
         .await?;

@@ -3,7 +3,10 @@
 //! 上下文保存 traceId、用户、租户、客户端等横切信息。handler、service、repository 和审计日志
 //! 必须通过该结构传递链路信息，避免每层重复解析请求头。
 
-use std::{convert::Infallible, time::Instant};
+use std::{
+    convert::Infallible,
+    time::{Duration, Instant},
+};
 
 use axum::extract::FromRequestParts;
 use http::request::Parts;
@@ -117,13 +120,10 @@ impl RequestContext {
 
     /// 返回当前请求在后端已消耗的毫秒数。
     ///
-    /// 该值使用单调时钟计算，避免系统时间回拨影响接口响应中的耗时字段。
-    pub fn elapsed_ms(&self) -> u64 {
-        self.request_started_at
-            .elapsed()
-            .as_millis()
-            .try_into()
-            .unwrap_or(u64::MAX)
+    /// 该值使用单调时钟计算，避免系统时间回拨影响接口响应中的耗时字段；返回值保留三位小数，
+    /// 便于展示 `0.xxx` 毫秒级别的快速请求。
+    pub fn elapsed_ms(&self) -> f64 {
+        duration_to_elapsed_ms(self.request_started_at.elapsed())
     }
 }
 
@@ -142,5 +142,27 @@ where
             .get::<RequestContext>()
             .cloned()
             .unwrap_or_else(|| RequestContext::anonymous(generate_trace_id())))
+    }
+}
+
+/// 将 `Duration` 转为保留三位小数的毫秒数。
+fn duration_to_elapsed_ms(duration: Duration) -> f64 {
+    // 统一在后端完成四舍五入，避免不同调用方对浮点毫秒展示精度理解不一致。
+    (duration.as_secs_f64() * 1_000_000.0).round() / 1_000.0
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use super::duration_to_elapsed_ms;
+
+    #[test]
+    fn elapsed_ms_keeps_three_decimal_places() {
+        // 小于 1 毫秒的请求必须保留 0.xxx 毫秒，满足快速接口排查和展示需求。
+        assert!((duration_to_elapsed_ms(Duration::from_micros(123)) - 0.123).abs() < f64::EPSILON);
+        assert!(
+            (duration_to_elapsed_ms(Duration::from_nanos(123_600)) - 0.124).abs() < f64::EPSILON
+        );
     }
 }

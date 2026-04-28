@@ -66,3 +66,16 @@ fn run_migrations_blocking(
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{mysql_migrations, postgres_migrations};
+
+    #[test]
+    fn embedded_migration_runners_build_without_panic() {
+        // Refinery 的 embed_migrations 会在 runner 构造阶段解析文件名版本号；该测试防止非法版本号
+        // 在真实启动执行 migration 时才 panic。
+        let _ = mysql_migrations::migrations::runner();
+        let _ = postgres_migrations::migrations::runner();
+    }
+}

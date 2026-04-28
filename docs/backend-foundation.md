@@ -110,13 +110,13 @@ backend/
       fixture.rs
   migrations/
     mysql/
-      V202604280001__init_foundation.sql
-      V202604280002__fix_app_metadata_active_unique_index.sql
-      V202604280003__create_business_translations.sql
+      V1__init_foundation.sql
+      V2__fix_app_metadata_active_unique_index.sql
+      V3__create_business_translations.sql
     postgres/
-      V202604280001__init_foundation.sql
-      V202604280002__fix_app_metadata_active_unique_index.sql
-      V202604280003__create_business_translations.sql
+      V1__init_foundation.sql
+      V2__fix_app_metadata_active_unique_index.sql
+      V3__create_business_translations.sql
   locales/
     zh-CN.yml
     en-US.yml
@@ -172,7 +172,7 @@ backend/
 7. 装配全局中间件和业务路由。
 8. 启动 HTTP 服务监听。
 
-启动失败必须立即退出进程，并输出结构化错误日志。禁止在 migration 失败、数据库不可用或关键配置缺失时继续启动服务。
+启动失败必须立即退出进程，并输出结构化错误日志。禁止在 migration 失败、数据库不可用或关键配置缺失时继续启动服务。服务完成监听后必须输出启动完成日志，并携带 `startup_elapsed_ms` 字段记录从进入启动流程到开始监听的总耗时。
 
 启动时支持通过 `--config <path>` 或 `-c <path>` 显式指定 dotenv 格式配置文件，例如在 `backend` 目录执行 `cargo run -- --config .env.example`。未指定配置文件时，服务会尝试加载当前工作目录下的默认 `.env`；默认 `.env` 不存在时继续使用进程环境变量。显式配置文件只负责把缺失的配置项加载到环境变量，部署平台已注入的同名环境变量优先生效，避免发布脚本覆盖容器或密钥系统注入的值。
 
@@ -209,7 +209,7 @@ backend/
   "data": {},
   "traceId": "trace-id",
   "timestamp": "2026-04-28T00:00:00Z",
-  "elapsedMs": 12
+  "elapsedMs": 0.123
 }
 ```
 
@@ -222,7 +222,7 @@ backend/
 | `data` | `object/null/array` | 是 | 业务数据。错误响应固定为 `null`，无返回值成功响应可为 `{}`。 |
 | `traceId` | `string` | 是 | 请求链路唯一标识，由 `X-Trace-Id` 请求头透传或服务端生成。 |
 | `timestamp` | `string` | 是 | 服务端响应时间，使用 UTC ISO 8601 格式。 |
-| `elapsedMs` | `number` | 是 | 请求进入后端到响应体构造时的处理耗时，单位毫秒。 |
+| `elapsedMs` | `number` | 是 | 请求进入后端到响应体构造时的处理耗时，单位毫秒，保留三位小数，快速请求可返回 `0.xxx`。 |
 
 只要业务 API 请求进入后端应用并由应用正常构造标准响应，HTTP 状态码必须固定为 `200`。前端、移动端和外部调用方必须通过响应体中的 `code` 判断业务成功、参数错误、权限错误、资源不存在、并发冲突或系统错误。健康检查接口是该规则的例外，必须按部署探针语义返回 HTTP `200` 或 `503`。
 
@@ -242,7 +242,7 @@ backend/
   "data": null,
   "traceId": "trace-id",
   "timestamp": "2026-04-28T00:00:00Z",
-  "elapsedMs": 12
+  "elapsedMs": 0.123
 }
 ```
 
@@ -262,7 +262,7 @@ backend/
   },
   "traceId": "trace-id",
   "timestamp": "2026-04-28T00:00:00Z",
-  "elapsedMs": 12
+  "elapsedMs": 12.345
 }
 ```
 
@@ -330,13 +330,13 @@ backend/
 ```text
 backend/migrations/
   mysql/
-    V202604280001__init_foundation.sql
-    V202604280002__fix_app_metadata_active_unique_index.sql
-    V202604280003__create_business_translations.sql
+    V1__init_foundation.sql
+    V2__fix_app_metadata_active_unique_index.sql
+    V3__create_business_translations.sql
   postgres/
-    V202604280001__init_foundation.sql
-    V202604280002__fix_app_metadata_active_unique_index.sql
-    V202604280003__create_business_translations.sql
+    V1__init_foundation.sql
+    V2__fix_app_metadata_active_unique_index.sql
+    V3__create_business_translations.sql
 ```
 
 数据库适配策略如下：
@@ -350,6 +350,7 @@ backend/migrations/
 迁移规则如下：
 
 - MySQL 和 PostgreSQL 脚本版本号必须保持一致，文件名中的版本号和业务意图必须一致。
+- Refinery 0.8 的 migration 版本号会解析为 `i32`，文件名必须使用 `V1__name.sql` 这类可被 `i32` 解析的递增版本，禁止使用超过 `i32` 范围的时间戳版本号。
 - 默认运行 MySQL migration；当配置指定 PostgreSQL 时，运行 PostgreSQL migration。
 - 所有表创建、表结构修改、默认数据和基础字典数据必须通过 migration 完成。
 - migration 文件一旦进入共享环境，不得修改历史内容，只能新增后续版本修正。

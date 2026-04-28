@@ -1,11 +1,17 @@
 .DS_Store
 .cargo/
 .env
+.env.*
+.env_*
 .env.local
 .env.*.local
+!.env.example
 backend/.env
+backend/.env.*
+backend/.env_*
 backend/.env.local
 backend/.env.*.local
+!backend/.env.example
 /target/
 target/
 backend/target/
