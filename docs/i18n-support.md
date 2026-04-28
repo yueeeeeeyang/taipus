@@ -150,6 +150,12 @@ form.validation.required
 - 写入业务翻译必须校验 locale、资源存在性、字段白名单、权限边界和乐观锁版本。
 - 逻辑删除业务资源时，必须同步逻辑删除对应业务翻译，或通过查询层保证翻译不再被读取。
 
+当前后端底座提供统一业务翻译服务，业务模块不应直接查询 `business_translations` 表。读取单字段时使用 `I18nService::localize_text`，列表页使用 `I18nService::localize_batch` 批量读取，写入时使用 `I18nService::set_business_translations` 批量覆盖设置。fallback 顺序固定为：当前请求 locale、配置默认 locale、业务主表原始值。
+
+通用管理 API 只允许操作 `BusinessTranslationRegistry` 中注册过的资源类型和字段。首版注册资源包括 `form_definition`、`field_definition`、`dictionary_item`、`workflow_node`，后续业务模块接入时必须补充自己的资源策略。未注册资源类型、字段白名单之外的字段、未配置支持的 locale 必须返回参数错误。资源策略预留 `resource_exists`、`check_read`、`check_write` 扩展点；当前没有具体业务模块和权限系统时默认通过，模块落地后必须替换为真实资源存在性和权限校验。
+
+业务翻译写入采用资源级乐观锁。请求 `version` 必须等于当前 active 翻译最大版本；新资源版本为 `0`。每次成功写入后，同一资源本次变更涉及的 active 翻译使用新版本号。批量覆盖语义按字段生效：请求中包含的字段会 upsert 提交的 locale，并逻辑删除该字段下本次未提交的旧 locale 翻译。
+
 ## 7. 后端接入方式
 
 后端多语言模块建议提供以下核心类型：
@@ -162,6 +168,11 @@ form.validation.required
 | `I18nService` | 渲染系统文本、加载系统资源、查询业务翻译和执行 fallback。 |
 | `SystemMessageKey` | 系统文本 key 的稳定枚举或常量集合。 |
 | `BusinessTranslation` | 业务翻译持久化模型。 |
+| `BusinessTranslationRegistry` | 业务翻译资源和字段白名单注册表。 |
+| `BusinessTranslationRepository` | 封装 MySQL/PostgreSQL 翻译查询、upsert 和逻辑删除差异。 |
+| `BusinessTranslationWriteCommand` | 批量覆盖写入业务翻译的命令对象。 |
+| `BusinessTranslationReadResponse` | 管理端读取业务翻译集合的响应对象。 |
+| `BusinessTranslationWriteResponse` | 管理端写入业务翻译后的响应对象。 |
 | `LocalizedText<T>` | 表示带翻译状态的数据包装，例如当前值、目标语言、来源语言和是否缺失。 |
 | `TimeDisplayContext` | 表示前端展示时间所需的 locale、time zone 和日期时间格式 profile。 |
 
@@ -169,8 +180,9 @@ form.validation.required
 
 - handler 不直接读取 `Accept-Language` 或 `X-Locale`，统一从 `RequestContext` 获取 locale。
 - handler 不直接读取 `X-Time-Zone`，统一从 `RequestContext` 获取 time zone。
-- service 层负责决定哪些业务字段需要多语言，并调用 `I18nService` 或 repository 查询翻译。
-- repository 层负责按资源维度批量查询业务翻译，避免列表接口出现 N+1 查询。
+- service 层负责决定哪些业务字段需要多语言，并调用 `I18nService::localize_text` 或 `I18nService::localize_batch` 查询翻译。
+- repository 层负责按资源维度批量查询业务翻译，避免列表接口出现 N+1 查询；业务模块不得绕过 `I18nService` 直接读取翻译表。
+- 管理端写入业务翻译必须调用 `I18nService::set_business_translations`，由统一服务完成资源注册、字段白名单、locale 和乐观锁校验。
 - `AppError` 后续必须携带 `messageKey`，由统一错误响应转换层按 locale 渲染。
 - 后端日志和审计记录必须包含最终 locale 和 time zone，便于定位语言协商、时区协商和翻译缺失问题。
 
@@ -261,6 +273,84 @@ GET /api/v1/i18n/system_resources?locale=zh-CN&timeZone=Asia/Shanghai&platform=f
 - 管理端或编辑接口可以显式返回 `translations`。
 - 批量列表必须批量加载翻译，禁止每条记录单独查询翻译。
 - 写入接口必须使用字段白名单，禁止调用方翻译任意数据库字段。
+
+### 8.3 业务翻译管理接口
+
+管理端读取某个业务资源的翻译集合：
+
+```text
+GET /api/v1/i18n/business_translations/{resource_type}/{resource_id}?fields=name,description
+```
+
+响应 `data` 示例：
+
+```json
+{
+  "resourceType": "form_definition",
+  "resourceId": "form_001",
+  "version": 3,
+  "fields": {
+    "name": {
+      "zh-CN": "客户登记",
+      "en-US": "Customer Registration"
+    }
+  }
+}
+```
+
+管理端批量覆盖设置某个业务资源的翻译：
+
+```text
+PUT /api/v1/i18n/business_translations/{resource_type}/{resource_id}
+```
+
+请求体示例：
+
+```json
+{
+  "version": 3,
+  "fields": {
+    "name": {
+      "zh-CN": "客户登记",
+      "en-US": "Customer Registration"
+    }
+  }
+}
+```
+
+接口规则如下：
+
+- `resource_type` 必须已注册到 `BusinessTranslationRegistry`。
+- `fields` 只能包含资源策略允许翻译的字段。
+- locale 必须在 `I18N_SUPPORTED_LOCALES` 中，大小写和下划线差异由后端规范化为资源文件中的 canonical locale。
+- `version` 不匹配时返回 `CONFLICT`，提醒管理端刷新后重试。
+- PUT 是字段级覆盖语义；字段下未提交的旧 locale 翻译会被逻辑删除。
+- 响应仍使用标准响应结构，包含 `code/message/data/traceId/timestamp/elapsedMs`。
+
+业务模块读取单字段示例：
+
+```rust
+state
+    .i18n
+    .localize_text(
+        database,
+        "form_definition",
+        form_id,
+        "name",
+        form.name,
+        &ctx,
+    )
+    .await?;
+```
+
+业务模块列表页必须批量读取：
+
+```rust
+state
+    .i18n
+    .localize_batch(database, requests, &ctx)
+    .await?;
+```
 
 ## 9. 前端和移动端接入
 

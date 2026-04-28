@@ -4,7 +4,7 @@
 
 use axum::{body::Body, http::Request};
 use http::StatusCode;
-use serde_json::Value;
+use serde_json::{Value, json};
 use taipus_backend::{
     AppConfig, AppState, build_router, tests::fixture::app_state_without_database,
 };
@@ -239,4 +239,92 @@ async fn not_found_message_is_localized() {
     assert_eq!(body["code"], -404);
     assert_eq!(body["message"], "Resource not found");
     assert_eq!(body["traceId"].as_str().is_some(), true);
+}
+
+#[tokio::test]
+async fn business_translation_api_rejects_unregistered_resource_before_database() {
+    // 通用业务翻译 API 必须先校验注册表，避免未注册资源在无数据库测试状态下被误报为系统错误。
+    let app = build_router(app_state_without_database());
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/i18n/business_translations/unknown_resource/res_1?fields=name")
+                .body(Body::empty())
+                .expect("测试请求必须可构造"),
+        )
+        .await
+        .expect("业务翻译请求必须可执行");
+
+    let body = read_json(response).await;
+    assert_eq!(body["code"], -400);
+}
+
+#[tokio::test]
+async fn business_translation_api_rejects_field_outside_whitelist() {
+    // 字段白名单是通用翻译写入的边界，不能让调用方随意操作任意字段。
+    let app = build_router(app_state_without_database());
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/i18n/business_translations/form_definition/res_1?fields=secret")
+                .body(Body::empty())
+                .expect("测试请求必须可构造"),
+        )
+        .await
+        .expect("业务翻译请求必须可执行");
+
+    let body = read_json(response).await;
+    assert_eq!(body["code"], -400);
+}
+
+#[tokio::test]
+async fn business_translation_api_rejects_unsupported_locale_before_database() {
+    // locale 校验必须早于数据库访问，错误配置或非法请求不能被无数据库状态掩盖成系统错误。
+    let app = build_router(app_state_without_database());
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri("/api/v1/i18n/business_translations/form_definition/res_1")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "version": 0,
+                        "fields": {
+                            "name": {
+                                "fr-FR": "Inscription client"
+                            }
+                        }
+                    })
+                    .to_string(),
+                ))
+                .expect("测试请求必须可构造"),
+        )
+        .await
+        .expect("业务翻译请求必须可执行");
+
+    let body = read_json(response).await;
+    assert_eq!(body["code"], -400);
+}
+
+#[tokio::test]
+async fn business_translation_api_returns_standard_response_for_bad_json() {
+    // Json extractor 错误也必须进入统一响应结构，避免前端拿到 Axum 默认错误体。
+    let app = build_router(app_state_without_database());
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri("/api/v1/i18n/business_translations/form_definition/res_1")
+                .header("content-type", "application/json")
+                .body(Body::from("{bad json"))
+                .expect("测试请求必须可构造"),
+        )
+        .await
+        .expect("业务翻译请求必须可执行");
+
+    let body = read_json(response).await;
+    assert_eq!(body["code"], -400);
+    assert!(body["traceId"].as_str().is_some());
+    assert!(body["elapsedMs"].as_f64().is_some());
 }
