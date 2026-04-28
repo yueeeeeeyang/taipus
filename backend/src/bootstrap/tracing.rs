@@ -9,10 +9,9 @@ use crate::{config::settings::AppConfig, error::app_error::AppResult};
 /// 在完整配置加载前初始化日志。
 ///
 /// 启动早期可能因为缺少 `DATABASE_URL`、端口非法等配置问题失败；如果等配置加载成功后
-/// 才初始化 tracing，这类错误就只能静默退出。因此这里先读取 `.env` 和 `RUST_LOG`，
-/// 用保守默认值建立日志输出通道。
+/// 才初始化 tracing，这类错误就只能静默退出。因此这里使用已加载配置中的 `RUST_LOG`，
+/// 并用保守默认值建立日志输出通道。
 pub fn init_tracing_from_env() -> AppResult<()> {
-    dotenvy::dotenv().ok();
     let log_level = std::env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string());
     init_tracing_with_filter(&log_level);
     Ok(())

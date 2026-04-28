@@ -8,6 +8,7 @@ use std::net::SocketAddr;
 use taipus_backend::{
     AppConfig, AppError, AppState,
     bootstrap::{
+        config::load_startup_config,
         database::create_database_pool,
         migration::run_migrations,
         tracing::{init_tracing, init_tracing_from_env},
@@ -30,8 +31,12 @@ async fn main() {
 ///
 /// 该流程与文档保持一致：配置、日志、数据库、迁移、状态、路由和监听必须顺序执行。
 async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let startup_options = load_startup_config()?;
     init_tracing_from_env()?;
-    let config = AppConfig::from_env()?;
+    if let Some(config_path) = startup_options.config_path() {
+        info!(config_file = %config_path.display(), "已加载启动配置文件");
+    }
+    let config = AppConfig::from_loaded_env()?;
     init_tracing(&config)?;
 
     let database = create_database_pool(&config.database).await?;

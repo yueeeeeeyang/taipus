@@ -62,12 +62,19 @@ pub struct I18nConfig {
 }
 
 impl AppConfig {
-    /// 从环境变量加载配置，并立即执行完整校验。
+    /// 从默认 `.env` 和环境变量加载配置，并立即执行完整校验。
     ///
-    /// 启动配置必须前置失败，不能把缺失数据库连接串、方言不匹配等问题延迟到请求处理阶段。
+    /// 该入口用于测试、工具或未经过 `main.rs` 启动流程的调用方；正式进程启动会先由
+    /// `bootstrap::config` 处理显式配置文件，然后调用 `from_loaded_env` 避免重复加载默认 `.env`。
     pub fn from_env() -> Result<Self, AppError> {
         dotenvy::dotenv().ok();
+        Self::from_loaded_env()
+    }
 
+    /// 从已经加载到进程环境中的配置项构造应用配置。
+    ///
+    /// 启动配置必须前置失败，不能把缺失数据库连接串、方言不匹配等问题延迟到请求处理阶段。
+    pub fn from_loaded_env() -> Result<Self, AppError> {
         let app_env = read_env("APP_ENV").unwrap_or_else(|| "local".to_string());
         let host = read_env("SERVER_HOST").unwrap_or_else(|| "0.0.0.0".to_string());
         let port = read_env("SERVER_PORT")
