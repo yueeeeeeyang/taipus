@@ -115,7 +115,13 @@ impl AppError {
         locale: &str,
         i18n: &I18nService,
     ) -> ApiResponse<Value> {
-        let message = i18n.system_text(&self.message_key, locale);
+        // 参数错误通常携带字段名、非法值或类型原因，覆盖为通用多语言文案会丢失前端排障所需的
+        // 具体上下文；其他错误继续使用系统多语言文案，保证非中文调用方得到稳定本地化响应。
+        let message = if self.code == ErrorCode::ParamInvalid {
+            self.message.clone()
+        } else {
+            i18n.system_text(&self.message_key, locale)
+        };
         ApiResponse::error(self.code, message, meta)
     }
 

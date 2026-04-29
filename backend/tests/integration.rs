@@ -8,6 +8,9 @@ mod api_response_test;
 #[path = "integration/health_check_test.rs"]
 mod health_check_test;
 
+#[path = "integration/hrm_test.rs"]
+mod hrm_test;
+
 #[path = "integration/i18n_test.rs"]
 mod i18n_test;
 

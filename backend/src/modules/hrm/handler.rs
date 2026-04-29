@@ -36,7 +36,8 @@ pub async fn create_user(
     payload: Result<Json<CreateUserRequest>, JsonRejection>,
 ) -> Response {
     handle(&state, &ctx, async {
-        HrmService::create_user(require_database(&state)?, &ctx, json_payload(payload)?).await
+        let payload = json_payload(payload)?;
+        HrmService::create_user(require_database(&state)?, &ctx, payload).await
     })
     .await
 }
@@ -48,7 +49,8 @@ pub async fn update_user(
     payload: Result<Json<UpdateUserRequest>, JsonRejection>,
 ) -> Response {
     handle(&state, &ctx, async {
-        HrmService::update_user(require_database(&state)?, &ctx, &id, json_payload(payload)?).await
+        let payload = json_payload(payload)?;
+        HrmService::update_user(require_database(&state)?, &ctx, &id, payload).await
     })
     .await
 }
@@ -106,7 +108,8 @@ pub async fn create_org(
     payload: Result<Json<CreateOrgRequest>, JsonRejection>,
 ) -> Response {
     handle(&state, &ctx, async {
-        HrmService::create_org(require_database(&state)?, &ctx, json_payload(payload)?).await
+        let payload = json_payload(payload)?;
+        HrmService::create_org(require_database(&state)?, &ctx, payload).await
     })
     .await
 }
@@ -118,7 +121,8 @@ pub async fn update_org(
     payload: Result<Json<UpdateOrgRequest>, JsonRejection>,
 ) -> Response {
     handle(&state, &ctx, async {
-        HrmService::update_org(require_database(&state)?, &ctx, &id, json_payload(payload)?).await
+        let payload = json_payload(payload)?;
+        HrmService::update_org(require_database(&state)?, &ctx, &id, payload).await
     })
     .await
 }
@@ -183,7 +187,8 @@ pub async fn create_post(
     payload: Result<Json<CreatePostRequest>, JsonRejection>,
 ) -> Response {
     handle(&state, &ctx, async {
-        HrmService::create_post(require_database(&state)?, &ctx, json_payload(payload)?).await
+        let payload = json_payload(payload)?;
+        HrmService::create_post(require_database(&state)?, &ctx, payload).await
     })
     .await
 }
@@ -195,7 +200,8 @@ pub async fn update_post(
     payload: Result<Json<UpdatePostRequest>, JsonRejection>,
 ) -> Response {
     handle(&state, &ctx, async {
-        HrmService::update_post(require_database(&state)?, &ctx, &id, json_payload(payload)?).await
+        let payload = json_payload(payload)?;
+        HrmService::update_post(require_database(&state)?, &ctx, &id, payload).await
     })
     .await
 }
@@ -253,7 +259,8 @@ pub async fn create_relation(
     payload: Result<Json<CreateUserOrgPostRequest>, JsonRejection>,
 ) -> Response {
     handle(&state, &ctx, async {
-        HrmService::create_relation(require_database(&state)?, &ctx, json_payload(payload)?).await
+        let payload = json_payload(payload)?;
+        HrmService::create_relation(require_database(&state)?, &ctx, payload).await
     })
     .await
 }
@@ -265,8 +272,8 @@ pub async fn update_relation(
     payload: Result<Json<UpdateUserOrgPostRequest>, JsonRejection>,
 ) -> Response {
     handle(&state, &ctx, async {
-        HrmService::update_relation(require_database(&state)?, &ctx, &id, json_payload(payload)?)
-            .await
+        let payload = json_payload(payload)?;
+        HrmService::update_relation(require_database(&state)?, &ctx, &id, payload).await
     })
     .await
 }
