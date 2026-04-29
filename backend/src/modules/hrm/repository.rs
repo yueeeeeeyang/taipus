@@ -653,9 +653,8 @@ impl HrmRepository {
         }
         match pool {
             DatabasePool::MySql(pool) => {
-                let mut builder = QueryBuilder::<MySql>::new(
-                    "SELECT * FROM hrm_users WHERE tenant_id = ",
-                );
+                let mut builder =
+                    QueryBuilder::<MySql>::new("SELECT * FROM hrm_users WHERE tenant_id = ");
                 builder
                     .push_bind(tenant_id.to_string())
                     .push(" AND deleted = FALSE AND id IN (");
@@ -667,9 +666,8 @@ impl HrmRepository {
                 Ok(builder.build_query_as::<HrmUser>().fetch_all(pool).await?)
             }
             DatabasePool::Postgres(pool) => {
-                let mut builder = QueryBuilder::<Postgres>::new(
-                    "SELECT * FROM hrm_users WHERE tenant_id = ",
-                );
+                let mut builder =
+                    QueryBuilder::<Postgres>::new("SELECT * FROM hrm_users WHERE tenant_id = ");
                 builder
                     .push_bind(tenant_id.to_string())
                     .push(" AND deleted = FALSE AND id IN (");

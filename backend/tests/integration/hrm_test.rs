@@ -6,8 +6,7 @@
 use axum::{body::Body, http::Request};
 use serde_json::{Value, json};
 use taipus_backend::{
-    AppError, build_router,
-    context::request_context::RequestContext,
+    AppError, build_router, context::request_context::RequestContext,
     tests::fixture::app_state_without_database,
 };
 use tower::ServiceExt;

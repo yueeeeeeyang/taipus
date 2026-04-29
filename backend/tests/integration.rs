@@ -16,3 +16,6 @@ mod i18n_test;
 
 #[path = "integration/migration_test.rs"]
 mod migration_test;
+
+#[path = "integration/tenant_test.rs"]
+mod tenant_test;

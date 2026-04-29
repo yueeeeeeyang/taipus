@@ -21,6 +21,8 @@ pub struct AppConfig {
     pub log_level: String,
     /// 多语言配置，包含默认语言、支持语言和系统资源版本。
     pub i18n: I18nConfig,
+    /// 租户配置，控制默认租户和早期联调阶段的 header 租户覆盖能力。
+    pub tenant: TenantConfig,
 }
 
 #[derive(Debug, Clone)]
@@ -59,6 +61,14 @@ pub struct I18nConfig {
     pub supported_time_zones: Vec<String>,
     /// 系统多语言资源版本，用于前端和移动端缓存失效。
     pub system_resource_version: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct TenantConfig {
+    /// 默认租户 ID，用于开发、测试和单租户部署。
+    pub default_tenant_id: String,
+    /// 是否允许通过 X-Tenant-Id 请求头指定租户，首版默认开启便于联调。
+    pub allow_header_override: bool,
 }
 
 impl AppConfig {
@@ -121,6 +131,15 @@ impl AppConfig {
             parse_time_zone_list(read_env("I18N_SUPPORTED_TIME_ZONES"), &default_time_zone)?;
         let system_resource_version =
             read_env("I18N_SYSTEM_RESOURCE_VERSION").unwrap_or_else(|| "202604280001".to_string());
+        let tenant = TenantConfig {
+            default_tenant_id: read_env("TENANT_DEFAULT_ID")
+                .unwrap_or_else(|| "default".to_string()),
+            allow_header_override: parse_bool_env(
+                "TENANT_ALLOW_HEADER_OVERRIDE",
+                read_env("TENANT_ALLOW_HEADER_OVERRIDE"),
+                true,
+            )?,
+        };
         let mut i18n = I18nConfig {
             default_locale,
             supported_locales,
@@ -143,6 +162,7 @@ impl AppConfig {
             },
             log_level: read_env("RUST_LOG").unwrap_or_else(|| "info".to_string()),
             i18n,
+            tenant,
         };
         config.validate()?;
         Ok(config)
@@ -177,6 +197,10 @@ impl AppConfig {
                 ],
                 system_resource_version: "test-version".to_string(),
             },
+            tenant: TenantConfig {
+                default_tenant_id: "default".to_string(),
+                allow_header_override: true,
+            },
         }
     }
 
@@ -204,7 +228,8 @@ impl AppConfig {
             &self.database.database_type,
             &self.database.database_url,
         )?;
-        validate_i18n_config(&self.i18n)
+        validate_i18n_config(&self.i18n)?;
+        validate_tenant_config(&self.tenant)
     }
 }
 
@@ -329,6 +354,18 @@ fn validate_i18n_config(config: &I18nConfig) -> Result<(), AppError> {
     Ok(())
 }
 
+fn validate_tenant_config(config: &TenantConfig) -> Result<(), AppError> {
+    if config.default_tenant_id.trim().is_empty() {
+        return Err(AppError::param_invalid("TENANT_DEFAULT_ID 不能为空"));
+    }
+    if !is_safe_identifier(config.default_tenant_id.trim()) {
+        return Err(AppError::param_invalid(
+            "TENANT_DEFAULT_ID 只能包含字母、数字、下划线和中横线",
+        ));
+    }
+    Ok(())
+}
+
 fn canonicalize_i18n_config(config: &mut I18nConfig) -> Result<(), AppError> {
     let available_locales = available_resource_locales();
     config.default_locale = canonicalize_resource_locale(
@@ -415,6 +452,14 @@ fn is_valid_locale_tag(value: &str) -> bool {
         .all(|part| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_alphanumeric()))
 }
 
+fn is_safe_identifier(value: &str) -> bool {
+    let len = value.len();
+    (1..=64).contains(&len)
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-')
+}
+
 /// 校验连接串协议和配置的数据库类型一致。
 ///
 /// 该检查可以提前发现 `DATABASE_TYPE=mysql` 但传入 PostgreSQL URL 的配置错误，
@@ -444,8 +489,8 @@ fn validate_url_matches_database_type(
 #[cfg(test)]
 mod tests {
     use super::{
-        I18nConfig, canonicalize_i18n_config, parse_bool_env, parse_locale_list,
-        parse_time_zone_list, validate_i18n_config,
+        I18nConfig, TenantConfig, canonicalize_i18n_config, parse_bool_env, parse_locale_list,
+        parse_time_zone_list, validate_i18n_config, validate_tenant_config,
     };
 
     #[test]
@@ -497,6 +542,17 @@ mod tests {
             parse_time_zone_list(Some("Asia/Shanghai,Bad/Zone".to_string()), "Asia/Shanghai")
                 .is_err()
         );
+    }
+
+    #[test]
+    fn validate_tenant_config_rejects_invalid_default_tenant() {
+        // 默认租户会进入请求上下文和 SQL 条件，必须限制为稳定安全标识符。
+        let config = TenantConfig {
+            default_tenant_id: "bad tenant".to_string(),
+            allow_header_override: true,
+        };
+
+        assert!(validate_tenant_config(&config).is_err());
     }
 
     #[test]

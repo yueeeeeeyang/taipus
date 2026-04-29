@@ -66,6 +66,28 @@ fn hrm_migration_exists_for_mysql_and_postgres() {
 }
 
 #[test]
+fn tenant_migration_exists_for_mysql_and_postgres() {
+    // 租户主数据表必须在 MySQL 和 PostgreSQL 中保持同版本，并初始化默认租户。
+    let mysql = include_str!("../../migrations/mysql/V5__create_tenant_tables.sql");
+    let postgres = include_str!("../../migrations/postgres/V5__create_tenant_tables.sql");
+
+    for migration in [mysql, postgres] {
+        assert!(migration.contains("CREATE TABLE sys_tenants"));
+        assert!(migration.contains("tenant_code"));
+        assert!(migration.contains("name_full_pinyin"));
+        assert!(migration.contains("name_simple_pinyin"));
+        assert!(migration.contains("isolation_mode"));
+        assert!(migration.contains("'default'"));
+        assert!(migration.contains("'shared_schema'"));
+    }
+
+    assert!(mysql.contains("active_tenant_code"));
+    assert!(mysql.contains("uk_sys_tenants_active_code"));
+    assert!(postgres.contains("WHERE deleted = FALSE"));
+    assert!(postgres.contains("uk_sys_tenants_active_code"));
+}
+
+#[test]
 fn persistent_tables_include_unified_base_fields() {
     // 当前所有已创建的持久化表都必须包含统一基础字段，避免后续业务模块字段语义漂移。
     let migrations = [
@@ -75,6 +97,8 @@ fn persistent_tables_include_unified_base_fields() {
         include_str!("../../migrations/postgres/V3__create_business_translations.sql"),
         include_str!("../../migrations/mysql/V4__create_hrm_tables.sql"),
         include_str!("../../migrations/postgres/V4__create_hrm_tables.sql"),
+        include_str!("../../migrations/mysql/V5__create_tenant_tables.sql"),
+        include_str!("../../migrations/postgres/V5__create_tenant_tables.sql"),
     ];
     let required_columns = [
         "version",

@@ -4,3 +4,4 @@
 
 pub mod example;
 pub mod hrm;
+pub mod tenant;

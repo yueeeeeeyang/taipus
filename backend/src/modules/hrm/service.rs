@@ -23,7 +23,6 @@ use crate::{
     utils::{id::generate_business_id, pinyin::to_pinyin_text, time::now_utc},
 };
 
-const DEFAULT_TENANT_ID: &str = "default";
 const SYSTEM_OPERATOR: &str = "system";
 const MAX_BATCH_IDS: usize = 500;
 
@@ -35,7 +34,7 @@ impl HrmService {
         ctx: &RequestContext,
         request: CreateUserRequest,
     ) -> AppResult<HrmUser> {
-        let tenant_id = tenant_id(ctx);
+        let tenant_id = tenant_id(ctx)?;
         let data = user_write(generate_business_id(), &tenant_id, ctx, request)?;
         HrmRepository::insert_user(pool, &data)
             .await
@@ -49,7 +48,7 @@ impl HrmService {
         id: &str,
         request: UpdateUserRequest,
     ) -> AppResult<HrmUser> {
-        let tenant_id = tenant_id(ctx);
+        let tenant_id = tenant_id(ctx)?;
         let data = user_write(
             id.to_string(),
             &tenant_id,
@@ -75,7 +74,7 @@ impl HrmService {
         ctx: &RequestContext,
         id: &str,
     ) -> AppResult<HrmUser> {
-        HrmRepository::get_user(pool, &tenant_id(ctx), id)
+        HrmRepository::get_user(pool, &tenant_id(ctx)?, id)
             .await?
             .ok_or_else(|| AppError::resource_not_found("用户不存在或已删除"))
     }
@@ -88,7 +87,7 @@ impl HrmService {
         let page = query.page.validate_and_normalize()?;
         validate_status_filter(query.status.as_deref())?;
         let (records, total) =
-            HrmRepository::page_users(pool, &tenant_id(ctx), &query, page).await?;
+            HrmRepository::page_users(pool, &tenant_id(ctx)?, &query, page).await?;
         Ok(PageResult::new(records, page, total))
     }
 
@@ -101,7 +100,7 @@ impl HrmService {
         let affected = HrmRepository::logical_delete(
             pool,
             "hrm_users",
-            &tenant_id(ctx),
+            &tenant_id(ctx)?,
             id,
             version,
             &operator(ctx),
@@ -116,7 +115,7 @@ impl HrmService {
         ctx: &RequestContext,
         id: &str,
     ) -> AppResult<()> {
-        let tenant_id = tenant_id(ctx);
+        let tenant_id = tenant_id(ctx)?;
         if HrmRepository::count_relations_by_user(pool, &tenant_id, id).await? > 0 {
             return Err(AppError::business_error(
                 "用户仍存在有效任职关系，不能物理删除",
@@ -130,7 +129,7 @@ impl HrmService {
         ctx: &RequestContext,
         request: CreateOrgRequest,
     ) -> AppResult<HrmOrg> {
-        let tenant_id = tenant_id(ctx);
+        let tenant_id = tenant_id(ctx)?;
         validate_org_tree_for_write(
             pool,
             &tenant_id,
@@ -152,7 +151,7 @@ impl HrmService {
         id: &str,
         request: UpdateOrgRequest,
     ) -> AppResult<HrmOrg> {
-        let tenant_id = tenant_id(ctx);
+        let tenant_id = tenant_id(ctx)?;
         validate_org_tree_for_write(
             pool,
             &tenant_id,
@@ -182,7 +181,7 @@ impl HrmService {
     }
 
     pub async fn get_org(pool: &DatabasePool, ctx: &RequestContext, id: &str) -> AppResult<HrmOrg> {
-        HrmRepository::get_org(pool, &tenant_id(ctx), id)
+        HrmRepository::get_org(pool, &tenant_id(ctx)?, id)
             .await?
             .ok_or_else(|| AppError::resource_not_found("组织不存在或已删除"))
     }
@@ -198,7 +197,7 @@ impl HrmService {
             OrgType::try_from(org_type)?;
         }
         let (records, total) =
-            HrmRepository::page_orgs(pool, &tenant_id(ctx), &query, page).await?;
+            HrmRepository::page_orgs(pool, &tenant_id(ctx)?, &query, page).await?;
         Ok(PageResult::new(records, page, total))
     }
 
@@ -206,7 +205,7 @@ impl HrmService {
         pool: &DatabasePool,
         ctx: &RequestContext,
     ) -> AppResult<Vec<OrgTreeNode>> {
-        let orgs = HrmRepository::list_orgs(pool, &tenant_id(ctx)).await?;
+        let orgs = HrmRepository::list_orgs(pool, &tenant_id(ctx)?).await?;
         Ok(build_org_tree(orgs, None))
     }
 
@@ -216,7 +215,7 @@ impl HrmService {
         id: &str,
         version: i64,
     ) -> AppResult<()> {
-        let tenant_id = tenant_id(ctx);
+        let tenant_id = tenant_id(ctx)?;
         if HrmRepository::count_active_children(pool, &tenant_id, id).await? > 0 {
             return Err(AppError::business_error("组织仍存在未删除子组织，不能删除"));
         }
@@ -241,7 +240,7 @@ impl HrmService {
         ctx: &RequestContext,
         id: &str,
     ) -> AppResult<()> {
-        let tenant_id = tenant_id(ctx);
+        let tenant_id = tenant_id(ctx)?;
         if HrmRepository::count_active_children(pool, &tenant_id, id).await? > 0 {
             return Err(AppError::business_error(
                 "组织仍存在未删除子组织，不能物理删除",
@@ -260,7 +259,7 @@ impl HrmService {
         ctx: &RequestContext,
         request: CreatePostRequest,
     ) -> AppResult<HrmPost> {
-        let tenant_id = tenant_id(ctx);
+        let tenant_id = tenant_id(ctx)?;
         let data = post_write(generate_business_id(), &tenant_id, ctx, request)?;
         HrmRepository::insert_post(pool, &data)
             .await
@@ -274,7 +273,7 @@ impl HrmService {
         id: &str,
         request: UpdatePostRequest,
     ) -> AppResult<HrmPost> {
-        let tenant_id = tenant_id(ctx);
+        let tenant_id = tenant_id(ctx)?;
         let data = post_write(
             id.to_string(),
             &tenant_id,
@@ -298,7 +297,7 @@ impl HrmService {
         ctx: &RequestContext,
         id: &str,
     ) -> AppResult<HrmPost> {
-        HrmRepository::get_post(pool, &tenant_id(ctx), id)
+        HrmRepository::get_post(pool, &tenant_id(ctx)?, id)
             .await?
             .ok_or_else(|| AppError::resource_not_found("岗位不存在或已删除"))
     }
@@ -311,7 +310,7 @@ impl HrmService {
         let page = query.page.validate_and_normalize()?;
         validate_status_filter(query.status.as_deref())?;
         let (records, total) =
-            HrmRepository::page_posts(pool, &tenant_id(ctx), &query, page).await?;
+            HrmRepository::page_posts(pool, &tenant_id(ctx)?, &query, page).await?;
         Ok(PageResult::new(records, page, total))
     }
 
@@ -321,7 +320,7 @@ impl HrmService {
         id: &str,
         version: i64,
     ) -> AppResult<()> {
-        let tenant_id = tenant_id(ctx);
+        let tenant_id = tenant_id(ctx)?;
         if HrmRepository::count_relations_by_post(pool, &tenant_id, id).await? > 0 {
             return Err(AppError::business_error("岗位仍存在有效任职关系，不能删除"));
         }
@@ -343,7 +342,7 @@ impl HrmService {
         ctx: &RequestContext,
         id: &str,
     ) -> AppResult<()> {
-        let tenant_id = tenant_id(ctx);
+        let tenant_id = tenant_id(ctx)?;
         if HrmRepository::count_relations_by_post(pool, &tenant_id, id).await? > 0 {
             return Err(AppError::business_error(
                 "岗位仍存在有效任职关系，不能物理删除",
@@ -357,7 +356,7 @@ impl HrmService {
         ctx: &RequestContext,
         request: CreateUserOrgPostRequest,
     ) -> AppResult<HrmUserOrgPost> {
-        let tenant_id = tenant_id(ctx);
+        let tenant_id = tenant_id(ctx)?;
         ensure_user_active(pool, &tenant_id, &request.user_id).await?;
         ensure_org_active(pool, &tenant_id, &request.org_id).await?;
         ensure_post_active(pool, &tenant_id, &request.post_id).await?;
@@ -374,7 +373,7 @@ impl HrmService {
         id: &str,
         request: UpdateUserOrgPostRequest,
     ) -> AppResult<HrmUserOrgPost> {
-        let tenant_id = tenant_id(ctx);
+        let tenant_id = tenant_id(ctx)?;
         ensure_user_active(pool, &tenant_id, &request.user_id).await?;
         ensure_org_active(pool, &tenant_id, &request.org_id).await?;
         ensure_post_active(pool, &tenant_id, &request.post_id).await?;
@@ -404,7 +403,7 @@ impl HrmService {
         ctx: &RequestContext,
         id: &str,
     ) -> AppResult<HrmUserOrgPost> {
-        HrmRepository::get_relation(pool, &tenant_id(ctx), id)
+        HrmRepository::get_relation(pool, &tenant_id(ctx)?, id)
             .await?
             .ok_or_else(|| AppError::resource_not_found("任职关系不存在或已删除"))
     }
@@ -416,7 +415,7 @@ impl HrmService {
     ) -> AppResult<PageResult<HrmUserOrgPost>> {
         let page = query.page.validate_and_normalize()?;
         let (records, total) =
-            HrmRepository::page_relations(pool, &tenant_id(ctx), &query, page).await?;
+            HrmRepository::page_relations(pool, &tenant_id(ctx)?, &query, page).await?;
         Ok(PageResult::new(records, page, total))
     }
 
@@ -429,7 +428,7 @@ impl HrmService {
         let affected = HrmRepository::logical_delete(
             pool,
             "hrm_user_org_posts",
-            &tenant_id(ctx),
+            &tenant_id(ctx)?,
             id,
             version,
             &operator(ctx),
@@ -445,7 +444,8 @@ impl HrmService {
         id: &str,
     ) -> AppResult<()> {
         ensure_deleted(
-            HrmRepository::physical_delete(pool, "hrm_user_org_posts", &tenant_id(ctx), id).await?,
+            HrmRepository::physical_delete(pool, "hrm_user_org_posts", &tenant_id(ctx)?, id)
+                .await?,
         )
     }
 
@@ -455,16 +455,13 @@ impl HrmService {
         ids: &[String],
     ) -> AppResult<Vec<HrmUser>> {
         validate_batch_ids(ids)?;
-        let users = HrmRepository::list_users_by_ids(pool, &tenant_id(ctx), ids).await?;
+        let users = HrmRepository::list_users_by_ids(pool, &tenant_id(ctx)?, ids).await?;
         let by_id: HashMap<String, HrmUser> = users
             .into_iter()
             .map(|user| (user.id.clone(), user))
             .collect();
         // 批量 SQL 不保证返回顺序，这里按调用方传入 ID 顺序重排，保证内部服务契约稳定。
-        Ok(ids
-            .iter()
-            .filter_map(|id| by_id.get(id).cloned())
-            .collect())
+        Ok(ids.iter().filter_map(|id| by_id.get(id).cloned()).collect())
     }
 
     pub async fn user_assignments(
@@ -472,7 +469,7 @@ impl HrmService {
         ctx: &RequestContext,
         user_id: &str,
     ) -> AppResult<Vec<UserAssignmentResponse>> {
-        let tenant_id = tenant_id(ctx);
+        let tenant_id = tenant_id(ctx)?;
         let query = UserOrgPostPageQuery {
             user_id: Some(user_id.to_string()),
             ..Default::default()
@@ -745,11 +742,11 @@ fn trim_optional(value: Option<String>) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
-fn tenant_id(ctx: &RequestContext) -> String {
+fn tenant_id(ctx: &RequestContext) -> AppResult<String> {
     ctx.tenant_id
         .clone()
         .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| DEFAULT_TENANT_ID.to_string())
+        .ok_or_else(|| AppError::param_invalid("租户上下文缺失"))
 }
 
 fn operator(ctx: &RequestContext) -> String {

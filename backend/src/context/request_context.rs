@@ -24,6 +24,8 @@ pub struct RequestContext {
     pub trace_id: String,
     /// 租户标识，首版可以为空，后续多租户能力会使用该字段做数据隔离。
     pub tenant_id: Option<String>,
+    /// 租户来源，例如 header、default、token 或 domain，用于审计和问题排查。
+    pub tenant_source: Option<String>,
     /// 当前用户标识，匿名接口为空。
     pub user_id: Option<String>,
     /// 当前用户角色集合，供 service 层权限检查使用。
@@ -70,6 +72,7 @@ impl RequestContext {
             request_started_at: Instant::now(),
             trace_id: trace_id.into(),
             tenant_id: None,
+            tenant_source: None,
             user_id: None,
             roles: Vec::new(),
             client_ip: None,
@@ -96,6 +99,14 @@ impl RequestContext {
         self.client_ip = client_ip;
         self.user_agent = user_agent;
         self
+    }
+
+    /// 写入租户解析结果。
+    ///
+    /// 租户中间件必须在业务 handler 执行前调用该方法，保证 service 层只从上下文读取租户。
+    pub fn set_tenant(&mut self, tenant_id: impl Into<String>, tenant_source: impl Into<String>) {
+        self.tenant_id = Some(tenant_id.into());
+        self.tenant_source = Some(tenant_source.into());
     }
 
     /// 写入语言协商结果。

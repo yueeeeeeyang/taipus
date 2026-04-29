@@ -29,6 +29,16 @@ pub async fn access_log_middleware(request: Request<Body>, next: Next) -> Respon
         .get::<RequestContext>()
         .map(|ctx| ctx.time_zone.clone())
         .unwrap_or_else(|| "UTC".to_string());
+    let tenant_id = request
+        .extensions()
+        .get::<RequestContext>()
+        .and_then(|ctx| ctx.tenant_id.clone())
+        .unwrap_or_else(|| "-".to_string());
+    let tenant_source = request
+        .extensions()
+        .get::<RequestContext>()
+        .and_then(|ctx| ctx.tenant_source.clone())
+        .unwrap_or_else(|| "-".to_string());
 
     let response = next.run(request).await;
     let status = response.status().as_u16();
@@ -43,6 +53,8 @@ pub async fn access_log_middleware(request: Request<Body>, next: Next) -> Respon
         %trace_id,
         %locale,
         %time_zone,
+        %tenant_id,
+        %tenant_source,
         "HTTP 请求完成"
     );
 
