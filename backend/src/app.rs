@@ -6,7 +6,6 @@
 use std::sync::Arc;
 
 use axum::{Router, middleware as axum_middleware, response::IntoResponse};
-use http::StatusCode;
 
 use crate::{
     config::settings::AppConfig,
@@ -73,7 +72,5 @@ async fn not_found(
     let message = state
         .i18n
         .system_text(ErrorCode::ResourceNotFound.message_key(), &ctx.locale);
-    ApiResponse::error(ErrorCode::ResourceNotFound, message, ctx.trace_id.clone())
-        .with_elapsed_ms(ctx.elapsed_ms())
-        .with_status(StatusCode::OK)
+    ApiResponse::error(ErrorCode::ResourceNotFound, message, &ctx)
 }

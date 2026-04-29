@@ -6,9 +6,8 @@
 use axum::{
     Json,
     extract::{Path, Query, State, rejection::JsonRejection},
-    response::Response,
+    response::{IntoResponse, Response},
 };
-use http::StatusCode;
 use serde::Deserialize;
 
 use crate::{
@@ -50,9 +49,7 @@ pub async fn system_resources(
     );
 
     match result {
-        Ok(data) => ApiResponse::success(data, ctx.trace_id.clone())
-            .with_elapsed_ms(ctx.elapsed_ms())
-            .with_status(StatusCode::OK),
+        Ok(data) => ApiResponse::success(data, &ctx).into_response(),
         Err(err) => err.into_response_with_context(&ctx, &state.i18n),
     }
 }
@@ -82,9 +79,7 @@ pub async fn get_business_translations(
     .await;
 
     match result {
-        Ok(data) => ApiResponse::success(data, ctx.trace_id.clone())
-            .with_elapsed_ms(ctx.elapsed_ms())
-            .with_status(StatusCode::OK),
+        Ok(data) => ApiResponse::success(data, &ctx).into_response(),
         Err(err) => err.into_response_with_context(&ctx, &state.i18n),
     }
 }
@@ -110,9 +105,7 @@ pub async fn put_business_translations(
     .await;
 
     match result {
-        Ok(data) => ApiResponse::success(data, ctx.trace_id.clone())
-            .with_elapsed_ms(ctx.elapsed_ms())
-            .with_status(StatusCode::OK),
+        Ok(data) => ApiResponse::success(data, &ctx).into_response(),
         Err(err) => err.into_response_with_context(&ctx, &state.i18n),
     }
 }

@@ -12,7 +12,64 @@ use http::StatusCode;
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::{error::error_code::ErrorCode, utils::time::now_utc};
+use crate::{
+    context::request_context::RequestContext, error::error_code::ErrorCode, utils::time::now_utc,
+};
+
+/// 构造统一响应所需的请求元信息。
+///
+/// handler 传入 `&RequestContext` 时会自动填充 traceId 和后端耗时；测试或后台工具只传 traceId
+/// 字符串时，耗时保持 0.0，避免为了无真实请求的场景伪造上下文。
+#[derive(Debug, Clone)]
+pub struct ApiResponseMeta {
+    /// 请求链路标识，必须与响应头中的 `X-Trace-Id` 保持一致。
+    pub trace_id: String,
+    /// 请求进入后端到响应体构造时的处理耗时，单位毫秒。
+    pub elapsed_ms: f64,
+}
+
+/// 将请求上下文或裸 traceId 转换为响应元信息。
+///
+/// 该 trait 只服务 `ApiResponse` 构造函数，目的是让业务 handler 默认传 `&RequestContext`，
+/// 不再手动调用 `with_elapsed_ms` 补充耗时。
+pub trait IntoApiResponseMeta {
+    /// 转换为统一响应元信息。
+    fn into_api_response_meta(self) -> ApiResponseMeta;
+}
+
+impl IntoApiResponseMeta for &RequestContext {
+    /// 使用真实请求上下文填充 traceId 和后端处理耗时。
+    fn into_api_response_meta(self) -> ApiResponseMeta {
+        ApiResponseMeta {
+            trace_id: self.trace_id.clone(),
+            elapsed_ms: self.elapsed_ms(),
+        }
+    }
+}
+
+impl IntoApiResponseMeta for String {
+    /// 裸 traceId 没有请求开始时间，默认耗时保持 0.0。
+    fn into_api_response_meta(self) -> ApiResponseMeta {
+        ApiResponseMeta {
+            trace_id: self,
+            elapsed_ms: 0.0,
+        }
+    }
+}
+
+impl IntoApiResponseMeta for &str {
+    /// 字符串字面量主要用于测试，默认耗时保持 0.0。
+    fn into_api_response_meta(self) -> ApiResponseMeta {
+        self.to_string().into_api_response_meta()
+    }
+}
+
+impl IntoApiResponseMeta for &String {
+    /// 字符串引用主要用于兼容已有调用方，默认耗时保持 0.0。
+    fn into_api_response_meta(self) -> ApiResponseMeta {
+        self.clone().into_api_response_meta()
+    }
+}
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -41,20 +98,21 @@ where
     /// 构造业务成功响应。
     ///
     /// 业务 API 的 HTTP 状态码由 `IntoResponse` 固定为 200，调用方通过 `code` 判断成功。
-    pub fn success(data: T, trace_id: impl Into<String>) -> Self {
+    pub fn success(data: T, meta: impl IntoApiResponseMeta) -> Self {
+        let meta = meta.into_api_response_meta();
         Self {
             code: ErrorCode::Success.as_i32(),
             message: ErrorCode::Success.default_message().to_string(),
             data: Some(data),
-            trace_id: trace_id.into(),
+            trace_id: meta.trace_id,
             timestamp: now_utc(),
-            elapsed_ms: 0.0,
+            elapsed_ms: meta.elapsed_ms,
         }
     }
 
     /// 写入请求后端处理耗时。
     ///
-    /// 真实请求应使用 `RequestContext::elapsed_ms` 计算；直接构造响应的测试或工具场景默认保持 0.0。
+    /// handler 应优先把 `RequestContext` 传给构造函数自动填充耗时；该方法只用于少量测试或适配旧调用。
     pub fn with_elapsed_ms(mut self, elapsed_ms: f64) -> Self {
         self.elapsed_ms = elapsed_ms;
         self
@@ -70,21 +128,26 @@ where
 
 impl ApiResponse<Value> {
     /// 构造无业务数据的成功响应，适合删除、启停等只需要表达执行结果的接口。
-    pub fn empty(trace_id: impl Into<String>) -> Self {
-        Self::success(serde_json::json!({}), trace_id)
+    pub fn empty(meta: impl IntoApiResponseMeta) -> Self {
+        Self::success(serde_json::json!({}), meta)
     }
 
     /// 构造错误响应。
     ///
     /// 错误响应的 `data` 固定为 `None`，防止调用方误把错误详情当作业务数据继续处理。
-    pub fn error(code: ErrorCode, message: impl Into<String>, trace_id: impl Into<String>) -> Self {
+    pub fn error(
+        code: ErrorCode,
+        message: impl Into<String>,
+        meta: impl IntoApiResponseMeta,
+    ) -> Self {
+        let meta = meta.into_api_response_meta();
         Self {
             code: code.as_i32(),
             message: message.into(),
             data: None,
-            trace_id: trace_id.into(),
+            trace_id: meta.trace_id,
             timestamp: now_utc(),
-            elapsed_ms: 0.0,
+            elapsed_ms: meta.elapsed_ms,
         }
     }
 

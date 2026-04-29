@@ -233,6 +233,12 @@ backend/
 - 请求头存在时，必须校验长度和字符集；非法值必须丢弃并由服务端重新生成。
 - 服务端必须把最终采用的 `traceId` 同时写入响应头 `X-Trace-Id` 和响应体 `traceId` 字段。
 
+响应构造规则如下：
+
+- `ApiResponse<T>` 构造时必须优先接收 `RequestContext`，由响应对象自动填充 `traceId` 和 `elapsedMs`。
+- 普通业务 API 不得在 handler 中手动调用 `with_elapsed_ms` 或传入 HTTP `200` 状态码；默认 `IntoResponse` 即使用 HTTP `200`。
+- `/health/live`、`/health/ready` 等探针接口需要返回 HTTP `503` 时，才允许显式设置非 `200` 状态码。
+
 标准错误响应如下：
 
 ```json

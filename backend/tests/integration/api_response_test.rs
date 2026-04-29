@@ -2,10 +2,13 @@
 //!
 //! 这些测试固定前后端依赖的 JSON 字段、数字业务码和分页边界，避免后续重构破坏接口契约。
 
+use std::time::{Duration, Instant};
+
 use http::StatusCode;
 use serde_json::{Value, json};
 use taipus_backend::{
     AppError,
+    context::request_context::RequestContext,
     error::error_code::ErrorCode,
     response::{
         api_response::ApiResponse,
@@ -27,6 +30,19 @@ fn success_response_uses_camel_case_and_positive_code() {
     assert!(value.get("timestamp").is_some());
     assert_eq!(value["elapsedMs"], 0.0);
     assert!(value.get("elapsed_ms").is_none());
+}
+
+#[test]
+fn response_uses_request_context_for_trace_id_and_elapsed_ms() {
+    // handler 传入 RequestContext 后，统一响应应自动写入 traceId 和后端耗时，避免每个接口手动补字段。
+    let mut ctx = RequestContext::anonymous("trace-auto-1234");
+    ctx.request_started_at = Instant::now() - Duration::from_micros(250);
+
+    let response = ApiResponse::success(json!({"name": "taipus"}), &ctx);
+    let value = serde_json::to_value(response).expect("统一响应必须可以序列化");
+
+    assert_eq!(value["traceId"], "trace-auto-1234");
+    assert!(value["elapsedMs"].as_f64().expect("elapsedMs 必须是数字") > 0.0);
 }
 
 #[test]

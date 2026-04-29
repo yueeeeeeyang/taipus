@@ -3,8 +3,7 @@
 //! `AppError` 同时保存调用方可见消息和内部日志消息。响应中只暴露安全消息，内部细节交给
 //! tracing 记录，避免 SQL、连接串、密钥或堆栈信息泄漏到前端。
 
-use axum::response::Response;
-use http::StatusCode;
+use axum::response::{IntoResponse, Response};
 use serde_json::Value;
 use thiserror::Error;
 use tracing::error;
@@ -72,8 +71,11 @@ impl AppError {
     /// 转换为统一错误响应体。
     ///
     /// 调用方必须传入当前请求的 traceId，保证响应和日志可以关联。
-    pub fn to_api_response(&self, trace_id: impl Into<String>) -> ApiResponse<Value> {
-        ApiResponse::error(self.code, self.message.clone(), trace_id.into())
+    pub fn to_api_response(
+        &self,
+        meta: impl crate::response::api_response::IntoApiResponseMeta,
+    ) -> ApiResponse<Value> {
+        ApiResponse::error(self.code, self.message.clone(), meta)
     }
 
     /// 转换为本地化错误响应体。
@@ -81,12 +83,12 @@ impl AppError {
     /// message 渲染使用请求最终 locale；如果资源缺失，由 `I18nService` 记录缺失并返回 key。
     pub fn to_localized_api_response(
         &self,
-        trace_id: impl Into<String>,
+        meta: impl crate::response::api_response::IntoApiResponseMeta,
         locale: &str,
         i18n: &I18nService,
     ) -> ApiResponse<Value> {
         let message = i18n.system_text(&self.message_key, locale);
-        ApiResponse::error(self.code, message, trace_id.into())
+        ApiResponse::error(self.code, message, meta)
     }
 
     /// 使用当前请求 traceId 转换为 Axum 响应。
@@ -103,7 +105,7 @@ impl AppError {
                 "应用错误"
             );
         }
-        self.to_api_response(trace_id).with_status(StatusCode::OK)
+        self.to_api_response(trace_id).into_response()
     }
 
     /// 使用请求上下文转换为 Axum 响应。
@@ -121,9 +123,8 @@ impl AppError {
                 "应用错误"
             );
         }
-        self.to_localized_api_response(ctx.trace_id.clone(), &ctx.locale, i18n)
-            .with_elapsed_ms(ctx.elapsed_ms())
-            .with_status(StatusCode::OK)
+        self.to_localized_api_response(ctx, &ctx.locale, i18n)
+            .into_response()
     }
 }
 
