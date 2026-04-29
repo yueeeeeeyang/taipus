@@ -10,6 +10,7 @@ chrono = { version = "0.4", features = ["serde"] }
 chrono-tz = "0.10"
 dotenvy = "0.15"
 http = "1"
+pinyin = { version = "0.11", default-features = false, features = ["plain"] }
 refinery = { version = "0.8", features = ["mysql", "postgres"] }
 rust-i18n = "4"
 serde = { version = "1", features = ["derive"] }
