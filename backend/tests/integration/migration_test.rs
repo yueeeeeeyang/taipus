@@ -35,6 +35,37 @@ fn business_translation_migration_exists_for_mysql_and_postgres() {
 }
 
 #[test]
+fn hrm_migration_exists_for_mysql_and_postgres() {
+    // HRM 主数据表必须在 MySQL 和 PostgreSQL 中保持同版本，并固定租户内唯一和主关系唯一约束。
+    let mysql = include_str!("../../migrations/mysql/V4__create_hrm_tables.sql");
+    let postgres = include_str!("../../migrations/postgres/V4__create_hrm_tables.sql");
+
+    for table in ["hrm_users", "hrm_orgs", "hrm_posts", "hrm_user_org_posts"] {
+        assert!(mysql.contains(&format!("CREATE TABLE {table}")));
+        assert!(postgres.contains(&format!("CREATE TABLE {table}")));
+    }
+
+    for column in [
+        "tenant_id",
+        "name_full_pinyin",
+        "name_simple_pinyin",
+        "sort_no",
+    ] {
+        assert!(mysql.contains(column));
+        assert!(postgres.contains(column));
+    }
+
+    assert!(mysql.contains("active_employee_key"));
+    assert!(mysql.contains("active_org_key"));
+    assert!(mysql.contains("active_post_key"));
+    assert!(mysql.contains("active_primary_org_key"));
+    assert!(mysql.contains("active_primary_post_key"));
+    assert!(postgres.contains("WHERE deleted = FALSE"));
+    assert!(postgres.contains("WHERE deleted = FALSE AND primary_org = TRUE"));
+    assert!(postgres.contains("WHERE deleted = FALSE AND primary_post = TRUE"));
+}
+
+#[test]
 fn persistent_tables_include_unified_base_fields() {
     // 当前所有已创建的持久化表都必须包含统一基础字段，避免后续业务模块字段语义漂移。
     let migrations = [
@@ -42,6 +73,8 @@ fn persistent_tables_include_unified_base_fields() {
         include_str!("../../migrations/postgres/V1__init_foundation.sql"),
         include_str!("../../migrations/mysql/V3__create_business_translations.sql"),
         include_str!("../../migrations/postgres/V3__create_business_translations.sql"),
+        include_str!("../../migrations/mysql/V4__create_hrm_tables.sql"),
+        include_str!("../../migrations/postgres/V4__create_hrm_tables.sql"),
     ];
     let required_columns = [
         "version",

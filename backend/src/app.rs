@@ -17,6 +17,7 @@ use crate::{
     middleware::{
         access_log::access_log_middleware, locale::locale_middleware, trace_id::trace_id_middleware,
     },
+    modules::hrm,
     response::api_response::ApiResponse,
 };
 
@@ -54,6 +55,7 @@ pub fn build_router(state: AppState) -> Router {
     Router::new()
         .merge(health::route::routes())
         .merge(i18n::route::routes())
+        .merge(hrm::route::routes())
         .fallback(not_found)
         .with_state(state.clone())
         .layer(axum_middleware::from_fn(access_log_middleware))

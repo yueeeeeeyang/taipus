@@ -57,6 +57,34 @@ impl AppError {
         Self::new(ErrorCode::ParamInvalid, message)
     }
 
+    /// 构造权限错误。
+    ///
+    /// service 层权限检查失败必须显式返回该错误，避免 handler 或 repository 分散权限语义。
+    pub fn forbidden(message: impl Into<String>) -> Self {
+        Self::new(ErrorCode::Forbidden, message)
+    }
+
+    /// 构造资源不存在错误。
+    ///
+    /// 查询、更新或删除已逻辑删除资源时统一使用该错误，避免用空对象伪装成功。
+    pub fn resource_not_found(message: impl Into<String>) -> Self {
+        Self::new(ErrorCode::ResourceNotFound, message)
+    }
+
+    /// 构造并发冲突错误。
+    ///
+    /// 乐观锁版本不匹配、唯一业务键冲突或重复关系写入应转换为该错误。
+    pub fn conflict(message: impl Into<String>) -> Self {
+        Self::new(ErrorCode::Conflict, message)
+    }
+
+    /// 构造业务规则错误。
+    ///
+    /// 状态、层级、引用检查等业务前置条件失败时使用该错误。
+    pub fn business_error(message: impl Into<String>) -> Self {
+        Self::new(ErrorCode::BusinessError, message)
+    }
+
     /// 构造系统错误。
     ///
     /// 对外响应统一使用安全消息，真实原因写入 `internal_message`。
