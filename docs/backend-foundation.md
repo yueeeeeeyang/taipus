@@ -74,8 +74,6 @@ backend/
     db/
       mod.rs
       executor.rs
-      entity.rs
-      repository.rs
       transaction.rs
     validation/
       mod.rs
@@ -186,8 +184,6 @@ backend/
 | --- | --- | --- |
 | 配置加载 | `StartupOptions`、`AppConfig` | 启动期支持显式配置文件，应用配置统一读取环境变量、配置文件和默认值，并完成必要字段校验。 |
 | 数据库连接池 | `DatabasePool` | 基于 SQLx 创建连接池，配置最大连接数、最小连接数、连接超时和空闲回收。 |
-| 实体基础字段 | `BaseFields`、`HasBaseFields` | Rust 不使用继承式基础类，业务实体通过组合基础字段并显式实现 trait 复用统一字段。 |
-| 写入结果判断 | `ensure_inserted`、`ensure_updated`、`ensure_deleted` | 统一把 repository 写入行数映射为成功、并发冲突或系统错误。 |
 | 数据库迁移 | `run_migrations` | 启动期按数据库类型选择 `migrations/mysql` 或 `migrations/postgres` 并执行 Refinery migration。 |
 | 统一响应 | `ApiResponse<T>` | 所有业务接口统一返回 `code`、`message`、`data`、`traceId`、`timestamp`、`elapsedMs`。 |
 | 分页模型 | `PageQuery`、`PageResult<T>` | 统一处理 `pageNo`、`pageSize`、总数、总页数和是否存在下一页。 |
@@ -376,27 +372,32 @@ backend/migrations/
 | `deleted_by` | `deleted_by` | `deletedBy` | 删除人标识。 | 未删除时为空，逻辑删除时写入当前用户或系统账号。 |
 | `deleted_time` | `deleted_time` | `deletedTime` | 删除时间。 | 未删除时为空，逻辑删除时写入当前 UTC 时间。 |
 
-数据库列名必须使用 `snake_case`，Rust 持久化模型字段建议保持 `snake_case` 以匹配 SQLx 映射；对外 JSON DTO 必须使用 `camelCase`。后端模型不得直接把数据库列命名暴露为对外接口字段，必须通过 Serde 配置或 DTO 映射保持跨层语义一致。
+数据库列名必须使用 `snake_case`，Rust 持久化模型字段必须保持 `snake_case` 以匹配 SQLx 映射；对外 JSON DTO 必须使用 `camelCase`。后端模型不得直接把数据库列命名暴露为对外接口字段，必须通过 Serde 配置或 DTO 映射保持跨层语义一致。
 
-Rust 业务实体不得模拟 Java 风格 `BaseEntity` 继承。统一基础字段通过组合实现：
+Rust 业务实体不得模拟 Java 风格 `BaseEntity` 继承，也不得为了基础字段提前引入组合字段、trait 或通用 repository 抽象。各业务实体必须直接平铺声明基础字段，使模型、SQL 和接口字段关系保持可读：
 
 ```rust
 pub struct FormDefinition {
     pub id: String,
     pub name: String,
-    #[serde(flatten)]
-    #[sqlx(flatten)]
-    pub base: BaseFields,
+    pub version: i64,
+    pub deleted: bool,
+    pub created_by: String,
+    pub created_time: DateTime<Utc>,
+    pub updated_by: String,
+    pub updated_time: DateTime<Utc>,
+    pub deleted_by: Option<String>,
+    pub deleted_time: Option<DateTime<Utc>>,
 }
 ```
 
-业务实体需要显式实现 `HasBaseFields`，需要修改基础字段的场景再实现 `HasBaseFieldsMut`。需要从 SQLx 查询结果映射的实体必须派生或实现 `sqlx::FromRow`，并在 `base` 字段上添加 `#[sqlx(flatten)]`，让 `version/deleted/created_by` 等数据库列映射到 `BaseFields`。不得为了基础字段复用引入过度泛型的通用 CRUD repository。
+需要从 SQLx 查询结果映射的实体可以派生或实现 `sqlx::FromRow`，基础字段按数据库列名直接映射。基础字段一致性通过文档、migration 契约测试和 repository SQL 契约测试约束，不通过代码抽象隐藏业务写入逻辑。
 
 repository 写入约定如下：
 
-- 新增 SQL 必须写入 `version = 1`、`deleted = FALSE`、创建字段和更新字段，并使用 `ensure_inserted` 校验影响行数。
-- 更新 SQL 必须包含 `version = version + 1`、更新字段、`WHERE id = ? AND version = ? AND deleted = FALSE`，并使用 `ensure_updated` 校验影响行数。
-- 逻辑删除 SQL 必须包含 `deleted = TRUE`、`deleted_by`、`deleted_time`、`version = version + 1`、`WHERE id = ? AND version = ? AND deleted = FALSE`，并使用 `ensure_deleted` 校验影响行数。
+- 新增 SQL 必须写入 `version = 1`、`deleted = FALSE`、创建字段和更新字段，并在 repository 内显式校验影响行数。
+- 更新 SQL 必须包含 `version = version + 1`、更新字段、`WHERE id = ? AND version = ? AND deleted = FALSE`，并在 repository 内显式把 0 行更新转换为并发冲突或资源不存在错误。
+- 逻辑删除 SQL 必须包含 `deleted = TRUE`、`deleted_by`、`deleted_time`、`version = version + 1`、`WHERE id = ? AND version = ? AND deleted = FALSE`，并在 repository 内显式校验影响行数。
 - 查询方法默认过滤 `deleted = FALSE`；只有显式命名为 `*_include_deleted`、审计或管理场景的方法才允许包含已删除数据。
 - 业务 SQL 必须继续在各 repository 中显式编写，不允许动态拼接任意表名实现通用 CRUD。
 

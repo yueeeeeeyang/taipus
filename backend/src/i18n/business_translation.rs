@@ -4,9 +4,8 @@
 
 use std::collections::BTreeMap;
 
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-
-use crate::db::entity::{BaseFields, HasBaseFields, HasBaseFieldsMut};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -23,23 +22,22 @@ pub struct BusinessTranslation {
     pub locale: String,
     /// 翻译文本。
     pub text_value: String,
-    /// 统一基础字段，对外 JSON 通过 flatten 保持 `version/createdBy` 等字段平铺。
-    #[serde(flatten)]
-    pub base: BaseFields,
-}
-
-impl HasBaseFields for BusinessTranslation {
-    /// 返回业务翻译的统一基础字段。
-    fn base_fields(&self) -> &BaseFields {
-        &self.base
-    }
-}
-
-impl HasBaseFieldsMut for BusinessTranslation {
-    /// 返回业务翻译的统一基础字段可变引用。
-    fn base_fields_mut(&mut self) -> &mut BaseFields {
-        &mut self.base
-    }
+    /// 业务翻译版本号，用于资源级乐观锁和变更检测。
+    pub version: i64,
+    /// 逻辑删除标记，查询 active 翻译时必须过滤为 `false`。
+    pub deleted: bool,
+    /// 创建人标识，首版未登录场景统一写入 `anonymous`。
+    pub created_by: String,
+    /// 创建时间，持久化和接口均保持 UTC 时间。
+    pub created_time: DateTime<Utc>,
+    /// 最后更新人标识。
+    pub updated_by: String,
+    /// 最后更新时间，持久化和接口均保持 UTC 时间。
+    pub updated_time: DateTime<Utc>,
+    /// 删除人标识，未删除记录保持为空。
+    pub deleted_by: Option<String>,
+    /// 删除时间，未删除记录保持为空。
+    pub deleted_time: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -144,4 +142,45 @@ pub struct BusinessTranslationValue {
     pub text_value: String,
     /// 翻译版本号。
     pub version: i64,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::BusinessTranslation;
+    use chrono::{TimeZone, Utc};
+    use serde_json::json;
+
+    #[test]
+    fn business_translation_serializes_base_fields_as_camel_case() {
+        // 业务模型字段在 Rust 内部保持 snake_case，对外 JSON 必须稳定输出 camelCase。
+        let translation = BusinessTranslation {
+            id: "translation_1".to_string(),
+            resource_type: "form_definition".to_string(),
+            resource_id: "form_1".to_string(),
+            field_name: "name".to_string(),
+            locale: "zh-CN".to_string(),
+            text_value: "客户登记".to_string(),
+            version: 1,
+            deleted: false,
+            created_by: "user_1".to_string(),
+            created_time: Utc
+                .with_ymd_and_hms(2026, 4, 28, 0, 0, 0)
+                .single()
+                .expect("测试时间必须合法"),
+            updated_by: "user_1".to_string(),
+            updated_time: Utc
+                .with_ymd_and_hms(2026, 4, 28, 0, 0, 1)
+                .single()
+                .expect("测试时间必须合法"),
+            deleted_by: None,
+            deleted_time: None,
+        };
+
+        let value = serde_json::to_value(translation).expect("业务翻译必须可以序列化");
+
+        assert_eq!(value["createdBy"], json!("user_1"));
+        assert_eq!(value["updatedBy"], json!("user_1"));
+        assert_eq!(value["deletedBy"], json!(null));
+        assert!(value.get("created_by").is_none());
+    }
 }
