@@ -23,6 +23,24 @@ pub async fn tenant_middleware(
     next: Next,
 ) -> Response {
     let path = request.uri().path().to_string();
+    if let Some(ctx) = request.extensions().get::<RequestContext>() {
+        if let Some(tenant_id) = ctx
+            .tenant_id
+            .clone()
+            .filter(|_| ctx.tenant_source.as_deref() == Some("token"))
+        {
+            if should_validate_tenant(&path) {
+                if let Some(pool) = state.database.as_ref() {
+                    if let Err(err) =
+                        TenantService::ensure_request_tenant_active(pool, &tenant_id).await
+                    {
+                        return tenant_error_response(&state, &request, err);
+                    }
+                }
+            }
+            return next.run(request).await;
+        }
+    }
     let (tenant_id, tenant_source) = match resolve_tenant(&state, &request) {
         Ok(value) => value,
         Err(err) => return tenant_error_response(&state, &request, err),

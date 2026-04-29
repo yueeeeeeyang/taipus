@@ -5,6 +5,9 @@
 #[path = "integration/api_response_test.rs"]
 mod api_response_test;
 
+#[path = "integration/auth_test.rs"]
+mod auth_test;
+
 #[path = "integration/health_check_test.rs"]
 mod health_check_test;
 

@@ -88,6 +88,38 @@ fn tenant_migration_exists_for_mysql_and_postgres() {
 }
 
 #[test]
+fn auth_migration_exists_for_mysql_and_postgres() {
+    // 认证首版只创建账号、账号租户关系、刷新令牌和审计表，不包含角色或权限表。
+    let mysql = include_str!("../../migrations/mysql/V6__create_auth_tables.sql");
+    let postgres = include_str!("../../migrations/postgres/V6__create_auth_tables.sql");
+
+    for migration in [mysql, postgres] {
+        for table in [
+            "sys_accounts",
+            "sys_account_tenants",
+            "sys_refresh_tokens",
+            "sys_auth_audit_logs",
+        ] {
+            assert!(migration.contains(&format!("CREATE TABLE {table}")));
+        }
+        assert!(migration.contains("display_name_full_pinyin"));
+        assert!(migration.contains("display_name_simple_pinyin"));
+        assert!(migration.contains("token_hash"));
+        assert!(migration.contains("token_family"));
+        assert!(!migration.contains(" mobile "));
+        assert!(!migration.contains(" email "));
+        assert!(!migration.contains("sys_roles"));
+        assert!(!migration.contains("sys_permissions"));
+    }
+
+    assert!(mysql.contains("active_username"));
+    assert!(mysql.contains("active_relation_key"));
+    assert!(mysql.contains("active_default_key"));
+    assert!(postgres.contains("WHERE deleted = FALSE"));
+    assert!(postgres.contains("WHERE deleted = FALSE AND is_default = TRUE"));
+}
+
+#[test]
 fn persistent_tables_include_unified_base_fields() {
     // 当前所有已创建的持久化表都必须包含统一基础字段，避免后续业务模块字段语义漂移。
     let migrations = [
@@ -99,6 +131,8 @@ fn persistent_tables_include_unified_base_fields() {
         include_str!("../../migrations/postgres/V4__create_hrm_tables.sql"),
         include_str!("../../migrations/mysql/V5__create_tenant_tables.sql"),
         include_str!("../../migrations/postgres/V5__create_tenant_tables.sql"),
+        include_str!("../../migrations/mysql/V6__create_auth_tables.sql"),
+        include_str!("../../migrations/postgres/V6__create_auth_tables.sql"),
     ];
     let required_columns = [
         "version",

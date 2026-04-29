@@ -57,6 +57,13 @@ impl AppError {
         Self::new(ErrorCode::ParamInvalid, message)
     }
 
+    /// 构造未认证错误。
+    ///
+    /// 令牌缺失、令牌无效、登录过期和刷新令牌失效统一返回该错误，避免泄露认证细节。
+    pub fn unauthorized(message: impl Into<String>) -> Self {
+        Self::new(ErrorCode::Unauthorized, message)
+    }
+
     /// 构造权限错误。
     ///
     /// service 层权限检查失败必须显式返回该错误，避免 handler 或 repository 分散权限语义。

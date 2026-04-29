@@ -23,6 +23,8 @@ pub struct AppConfig {
     pub i18n: I18nConfig,
     /// 租户配置，控制默认租户和早期联调阶段的 header 租户覆盖能力。
     pub tenant: TenantConfig,
+    /// 认证配置，控制 JWT、刷新令牌和默认管理员初始化。
+    pub auth: AuthConfig,
 }
 
 #[derive(Debug, Clone)]
@@ -69,6 +71,34 @@ pub struct TenantConfig {
     pub default_tenant_id: String,
     /// 是否允许通过 X-Tenant-Id 请求头指定租户，首版默认开启便于联调。
     pub allow_header_override: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct AuthConfig {
+    /// JWT 签发方，访问令牌校验必须匹配。
+    pub jwt_issuer: String,
+    /// JWT 受众，首版 PC 和移动端统一使用同一 API 受众。
+    pub jwt_audience: String,
+    /// 当前 RS256 密钥 ID，用于后续密钥轮换。
+    pub jwt_kid: String,
+    /// RS256 私钥 PEM，用于签发访问令牌。
+    pub jwt_private_key_pem: Option<String>,
+    /// RS256 公钥 PEM，用于校验访问令牌。
+    pub jwt_public_key_pem: Option<String>,
+    /// 访问令牌有效期秒数。
+    pub access_token_ttl_seconds: i64,
+    /// 刷新令牌有效期秒数。
+    pub refresh_token_ttl_seconds: i64,
+    /// 刷新令牌哈希 pepper，必须由部署环境提供。
+    pub refresh_token_pepper: Option<String>,
+    /// 首次启动管理员用户名。
+    pub bootstrap_admin_username: Option<String>,
+    /// 首次启动管理员明文密码，仅启动初始化使用，不写入日志和响应。
+    pub bootstrap_admin_password: Option<String>,
+    /// 首次启动管理员展示名。
+    pub bootstrap_admin_display_name: Option<String>,
+    /// 首次启动管理员所属租户。
+    pub bootstrap_admin_tenant_id: Option<String>,
 }
 
 impl AppConfig {
@@ -140,6 +170,30 @@ impl AppConfig {
                 true,
             )?,
         };
+        let auth = AuthConfig {
+            jwt_issuer: read_env("AUTH_JWT_ISSUER").unwrap_or_else(|| "taipus-api".to_string()),
+            jwt_audience: read_env("AUTH_JWT_AUDIENCE").unwrap_or_else(|| "api".to_string()),
+            jwt_kid: read_env("AUTH_JWT_KID").unwrap_or_else(|| "default".to_string()),
+            jwt_private_key_pem: read_env("AUTH_JWT_PRIVATE_KEY_PEM"),
+            jwt_public_key_pem: read_env("AUTH_JWT_PUBLIC_KEY_PEM"),
+            access_token_ttl_seconds: read_env("AUTH_ACCESS_TOKEN_TTL_SECONDS")
+                .unwrap_or_else(|| "900".to_string())
+                .parse::<i64>()
+                .map_err(|_| {
+                    AppError::param_invalid("AUTH_ACCESS_TOKEN_TTL_SECONDS 必须是正整数")
+                })?,
+            refresh_token_ttl_seconds: read_env("AUTH_REFRESH_TOKEN_TTL_SECONDS")
+                .unwrap_or_else(|| "2592000".to_string())
+                .parse::<i64>()
+                .map_err(|_| {
+                    AppError::param_invalid("AUTH_REFRESH_TOKEN_TTL_SECONDS 必须是正整数")
+                })?,
+            refresh_token_pepper: read_env("AUTH_REFRESH_TOKEN_PEPPER"),
+            bootstrap_admin_username: read_env("AUTH_BOOTSTRAP_ADMIN_USERNAME"),
+            bootstrap_admin_password: read_env("AUTH_BOOTSTRAP_ADMIN_PASSWORD"),
+            bootstrap_admin_display_name: read_env("AUTH_BOOTSTRAP_ADMIN_DISPLAY_NAME"),
+            bootstrap_admin_tenant_id: read_env("AUTH_BOOTSTRAP_ADMIN_TENANT_ID"),
+        };
         let mut i18n = I18nConfig {
             default_locale,
             supported_locales,
@@ -163,6 +217,7 @@ impl AppConfig {
             log_level: read_env("RUST_LOG").unwrap_or_else(|| "info".to_string()),
             i18n,
             tenant,
+            auth,
         };
         config.validate()?;
         Ok(config)
@@ -201,6 +256,20 @@ impl AppConfig {
                 default_tenant_id: "default".to_string(),
                 allow_header_override: true,
             },
+            auth: AuthConfig {
+                jwt_issuer: "taipus-api".to_string(),
+                jwt_audience: "api".to_string(),
+                jwt_kid: "test".to_string(),
+                jwt_private_key_pem: None,
+                jwt_public_key_pem: None,
+                access_token_ttl_seconds: 900,
+                refresh_token_ttl_seconds: 2_592_000,
+                refresh_token_pepper: Some("test-pepper".to_string()),
+                bootstrap_admin_username: None,
+                bootstrap_admin_password: None,
+                bootstrap_admin_display_name: None,
+                bootstrap_admin_tenant_id: None,
+            },
         }
     }
 
@@ -229,7 +298,8 @@ impl AppConfig {
             &self.database.database_url,
         )?;
         validate_i18n_config(&self.i18n)?;
-        validate_tenant_config(&self.tenant)
+        validate_tenant_config(&self.tenant)?;
+        validate_auth_config(&self.auth)
     }
 }
 
@@ -362,6 +432,78 @@ fn validate_tenant_config(config: &TenantConfig) -> Result<(), AppError> {
         return Err(AppError::param_invalid(
             "TENANT_DEFAULT_ID 只能包含字母、数字、下划线和中横线",
         ));
+    }
+    Ok(())
+}
+
+fn validate_auth_config(config: &AuthConfig) -> Result<(), AppError> {
+    if config.jwt_issuer.trim().is_empty() {
+        return Err(AppError::param_invalid("AUTH_JWT_ISSUER 不能为空"));
+    }
+    if config.jwt_audience.trim().is_empty() {
+        return Err(AppError::param_invalid("AUTH_JWT_AUDIENCE 不能为空"));
+    }
+    if config.jwt_kid.trim().is_empty() {
+        return Err(AppError::param_invalid("AUTH_JWT_KID 不能为空"));
+    }
+    if config.access_token_ttl_seconds <= 0 {
+        return Err(AppError::param_invalid(
+            "AUTH_ACCESS_TOKEN_TTL_SECONDS 必须大于 0",
+        ));
+    }
+    if config.refresh_token_ttl_seconds <= 0 {
+        return Err(AppError::param_invalid(
+            "AUTH_REFRESH_TOKEN_TTL_SECONDS 必须大于 0",
+        ));
+    }
+    if config
+        .jwt_private_key_pem
+        .as_deref()
+        .is_none_or(|value| value.trim().is_empty())
+    {
+        return Err(AppError::param_invalid(
+            "AUTH_JWT_PRIVATE_KEY_PEM 是认证模块必填配置",
+        ));
+    }
+    if config
+        .jwt_public_key_pem
+        .as_deref()
+        .is_none_or(|value| value.trim().is_empty())
+    {
+        return Err(AppError::param_invalid(
+            "AUTH_JWT_PUBLIC_KEY_PEM 是认证模块必填配置",
+        ));
+    }
+    if config
+        .refresh_token_pepper
+        .as_deref()
+        .is_none_or(|value| value.trim().is_empty())
+    {
+        return Err(AppError::param_invalid(
+            "AUTH_REFRESH_TOKEN_PEPPER 是认证模块必填配置",
+        ));
+    }
+    let bootstrap_values = [
+        config.bootstrap_admin_username.as_ref(),
+        config.bootstrap_admin_password.as_ref(),
+        config.bootstrap_admin_display_name.as_ref(),
+        config.bootstrap_admin_tenant_id.as_ref(),
+    ];
+    let configured_count = bootstrap_values
+        .iter()
+        .filter(|value| value.is_some_and(|value| !value.trim().is_empty()))
+        .count();
+    if configured_count != 0 && configured_count != bootstrap_values.len() {
+        return Err(AppError::param_invalid(
+            "AUTH_BOOTSTRAP_ADMIN_* 必须同时配置 username、password、display name 和 tenant id",
+        ));
+    }
+    if let Some(tenant_id) = config.bootstrap_admin_tenant_id.as_ref() {
+        if !is_safe_identifier(tenant_id.trim()) {
+            return Err(AppError::param_invalid(
+                "AUTH_BOOTSTRAP_ADMIN_TENANT_ID 只能包含字母、数字、下划线和中横线",
+            ));
+        }
     }
     Ok(())
 }

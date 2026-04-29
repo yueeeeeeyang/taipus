@@ -15,10 +15,10 @@ use crate::{
     health, i18n,
     i18n::service::I18nService,
     middleware::{
-        access_log::access_log_middleware, locale::locale_middleware, tenant::tenant_middleware,
-        trace_id::trace_id_middleware,
+        access_log::access_log_middleware, auth::auth_middleware, locale::locale_middleware,
+        tenant::tenant_middleware, trace_id::trace_id_middleware,
     },
-    modules::{hrm, tenant},
+    modules::{auth, hrm, tenant},
     response::api_response::ApiResponse,
 };
 
@@ -53,10 +53,12 @@ impl AppState {
 pub fn build_router(state: AppState) -> Router {
     let locale_state = state.clone();
     let tenant_state = state.clone();
+    let auth_state = state.clone();
     // traceId 中间件必须位于外层，确保访问日志、handler 和 fallback 都能读取同一个上下文。
     Router::new()
         .merge(health::route::routes())
         .merge(i18n::route::routes())
+        .merge(auth::route::routes())
         .merge(tenant::route::routes())
         .merge(hrm::route::routes())
         .fallback(not_found)
@@ -65,6 +67,10 @@ pub fn build_router(state: AppState) -> Router {
         .layer(axum_middleware::from_fn_with_state(
             tenant_state,
             tenant_middleware,
+        ))
+        .layer(axum_middleware::from_fn_with_state(
+            auth_state,
+            auth_middleware,
         ))
         .layer(axum_middleware::from_fn_with_state(
             locale_state,

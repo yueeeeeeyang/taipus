@@ -14,6 +14,7 @@ use taipus_backend::{
         tracing::{init_tracing, init_tracing_from_env},
     },
     build_router,
+    modules::auth::service::bootstrap_admin,
 };
 use tokio::net::TcpListener;
 use tracing::{error, info};
@@ -45,6 +46,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // migration 必须在服务监听前完成，避免新实例使用旧表结构处理请求。
         run_migrations(&config.database).await?;
     }
+    bootstrap_admin(&database, &config.auth).await?;
 
     let addr: SocketAddr = format!("{}:{}", config.server.host, config.server.port).parse()?;
     let listener = TcpListener::bind(addr).await?;

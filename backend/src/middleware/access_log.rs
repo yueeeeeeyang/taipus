@@ -39,6 +39,11 @@ pub async fn access_log_middleware(request: Request<Body>, next: Next) -> Respon
         .get::<RequestContext>()
         .and_then(|ctx| ctx.tenant_source.clone())
         .unwrap_or_else(|| "-".to_string());
+    let user_id = request
+        .extensions()
+        .get::<RequestContext>()
+        .and_then(|ctx| ctx.user_id.clone())
+        .unwrap_or_else(|| "-".to_string());
 
     let response = next.run(request).await;
     let status = response.status().as_u16();
@@ -55,6 +60,7 @@ pub async fn access_log_middleware(request: Request<Body>, next: Next) -> Respon
         %time_zone,
         %tenant_id,
         %tenant_source,
+        %user_id,
         "HTTP 请求完成"
     );
 
