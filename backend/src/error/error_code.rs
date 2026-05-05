@@ -12,6 +12,11 @@ pub enum ErrorCode {
     ParamInvalid = -400,
     /// 未认证，例如缺少令牌、令牌无效或登录过期。
     Unauthorized = -401,
+    /// 登录账号或密码错误。
+    ///
+    /// 该错误码只用于用户名密码登录失败；访问令牌缺失、过期、篡改等仍使用 `Unauthorized`，
+    /// 便于前端区分“登录表单输入错误”和“当前会话不可用”。
+    AuthBadCredentials = -1001,
     /// 已认证但无操作权限。
     Forbidden = -403,
     /// 资源不存在或已被逻辑删除。
@@ -40,6 +45,7 @@ impl ErrorCode {
             Self::Success => "ok",
             Self::ParamInvalid => "请求参数不合法",
             Self::Unauthorized => "未认证或登录已过期",
+            Self::AuthBadCredentials => "账号或密码错误",
             Self::Forbidden => "无权限执行该操作",
             Self::ResourceNotFound => "资源不存在",
             Self::Conflict => "数据已被修改，请刷新后重试",
@@ -57,6 +63,7 @@ impl ErrorCode {
             Self::Success => "error.success",
             Self::ParamInvalid => "error.param_invalid",
             Self::Unauthorized => "error.unauthorized",
+            Self::AuthBadCredentials => "error.auth_bad_credentials",
             Self::Forbidden => "error.forbidden",
             Self::ResourceNotFound => "error.resource_not_found",
             Self::Conflict => "error.conflict",

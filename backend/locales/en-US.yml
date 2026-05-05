@@ -2,6 +2,7 @@ _version: 1
 error.success: "ok"
 error.param_invalid: "Invalid request parameters"
 error.unauthorized: "Unauthenticated or session expired"
+error.auth_bad_credentials: "Username or password is incorrect"
 error.forbidden: "Permission denied"
 error.resource_not_found: "Resource not found"
 error.conflict: "Data has changed, refresh and try again"

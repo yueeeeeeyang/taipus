@@ -2,6 +2,7 @@ _version: 1
 error.success: "ok"
 error.param_invalid: "请求参数不合法"
 error.unauthorized: "未认证或登录已过期"
+error.auth_bad_credentials: "账号或密码错误"
 error.forbidden: "无权限执行该操作"
 error.resource_not_found: "资源不存在"
 error.conflict: "数据已被修改，请刷新后重试"

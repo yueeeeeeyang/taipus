@@ -53,7 +53,7 @@ impl AuthService {
                         "账号或密码错误",
                     )
                     .await;
-                    return Err(AppError::unauthorized("账号或密码错误"));
+                    return Err(AppError::auth_bad_credentials());
                 }
             };
         if !verify_password(&request.password, &account.password_hash)? {
@@ -68,7 +68,7 @@ impl AuthService {
                 "账号或密码错误",
             )
             .await;
-            return Err(AppError::unauthorized("账号或密码错误"));
+            return Err(AppError::auth_bad_credentials());
         }
         ensure_account_loginable(&account)?;
         let tenants = AuthRepository::list_account_tenants(pool, &account.id).await?;

@@ -64,6 +64,17 @@ impl AppError {
         Self::new(ErrorCode::Unauthorized, message)
     }
 
+    /// 构造登录账号或密码错误。
+    ///
+    /// 该错误只用于密码登录场景，响应需要明确提示登录表单输入不匹配；token 缺失、失效、
+    /// 过期仍使用 `unauthorized`，避免调用方把会话问题误判为账号密码问题。
+    pub fn auth_bad_credentials() -> Self {
+        Self::new(
+            ErrorCode::AuthBadCredentials,
+            ErrorCode::AuthBadCredentials.default_message(),
+        )
+    }
+
     /// 构造权限错误。
     ///
     /// service 层权限检查失败必须显式返回该错误，避免 handler 或 repository 分散权限语义。

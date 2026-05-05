@@ -58,6 +58,10 @@ const BACKEND_KEYS: &[SystemResourceKey] = &[
         message_key: "error.param_invalid",
     },
     SystemResourceKey {
+        output_key: "authBadCredentials",
+        message_key: "error.auth_bad_credentials",
+    },
+    SystemResourceKey {
         output_key: "resourceNotFound",
         message_key: "error.resource_not_found",
     },
