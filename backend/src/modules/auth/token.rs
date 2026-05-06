@@ -90,7 +90,7 @@ impl AuthTokenService {
         }
         decode::<AccessTokenClaims>(
             token,
-            &DecodingKey::from_rsa_pem(public_key.as_bytes())
+            &DecodingKey::from_rsa_pem(normalize_pem_value(public_key).as_bytes())
                 .map_err(|err| AppError::system(format!("JWT 公钥解析失败: {err}")))?,
             &validation,
         )
@@ -104,6 +104,7 @@ fn encode_claims(config: &AuthConfig, claims: &AccessTokenClaims) -> AppResult<S
         .jwt_private_key_pem
         .as_deref()
         .ok_or_else(|| AppError::system("AUTH_JWT_PRIVATE_KEY_PEM 未配置"))?;
+    let private_key = normalize_pem_value(private_key);
     let mut header = Header::new(Algorithm::RS256);
     header.kid = Some(config.jwt_kid.clone());
     encode(
@@ -113,6 +114,25 @@ fn encode_claims(config: &AuthConfig, claims: &AccessTokenClaims) -> AppResult<S
             .map_err(|err| AppError::system(format!("JWT 私钥解析失败: {err}")))?,
     )
     .map_err(|err| AppError::system(format!("JWT 签发失败: {err}")))
+}
+
+/// 规范化从环境变量读取的 PEM 内容。
+///
+/// 本地和容器环境经常把多行 PEM 写成单行 `\n` 转义文本；`jsonwebtoken` 只能解析真实换行，
+/// 因此签发和校验前必须统一转换。这里也兼容少数部署平台会把值整体保留引号的情况。
+pub(crate) fn normalize_pem_value(value: &str) -> String {
+    let trimmed = value.trim();
+    let unquoted = trimmed
+        .strip_prefix('"')
+        .and_then(|value| value.strip_suffix('"'))
+        .or_else(|| {
+            trimmed
+                .strip_prefix('\'')
+                .and_then(|value| value.strip_suffix('\''))
+        })
+        .unwrap_or(trimmed);
+
+    unquoted.replace("\\n", "\n").trim().to_string()
 }
 
 /// 生成 URL 安全的高熵刷新令牌。
@@ -133,4 +153,20 @@ pub fn hash_refresh_token(config: &AuthConfig, refresh_token: &str) -> AppResult
     hasher.update(b":");
     hasher.update(refresh_token.as_bytes());
     Ok(format!("{:x}", hasher.finalize()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_pem_value;
+
+    #[test]
+    fn normalize_pem_value_accepts_escaped_newlines_and_outer_quotes() {
+        // 部署环境常用单行环境变量保存 PEM，解析前必须把字面量 `\n` 转成真实换行。
+        let raw = r#""-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----""#;
+
+        assert_eq!(
+            normalize_pem_value(raw),
+            "-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----"
+        );
+    }
 }

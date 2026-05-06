@@ -5,8 +5,11 @@
 
 use std::{env, str::FromStr, time::Duration};
 
+use jsonwebtoken::{DecodingKey, EncodingKey};
+
 use crate::{
-    db::executor::DatabaseType, error::app_error::AppError, i18n::time_zone::canonicalize_time_zone,
+    db::executor::DatabaseType, error::app_error::AppError,
+    i18n::time_zone::canonicalize_time_zone, modules::auth::token::normalize_pem_value,
 };
 
 #[derive(Debug, Clone)]
@@ -465,6 +468,12 @@ fn validate_auth_config(config: &AuthConfig) -> Result<(), AppError> {
             "AUTH_JWT_PRIVATE_KEY_PEM 是认证模块必填配置",
         ));
     }
+    if let Some(private_key) = config.jwt_private_key_pem.as_deref() {
+        // JWT 密钥属于认证链路硬依赖，必须在启动期解析失败，而不是等到登录签发令牌时返回系统错误。
+        EncodingKey::from_rsa_pem(normalize_pem_value(private_key).as_bytes()).map_err(|err| {
+            AppError::param_invalid(format!("AUTH_JWT_PRIVATE_KEY_PEM 不是合法 RSA 私钥: {err}"))
+        })?;
+    }
     if config
         .jwt_public_key_pem
         .as_deref()
@@ -473,6 +482,12 @@ fn validate_auth_config(config: &AuthConfig) -> Result<(), AppError> {
         return Err(AppError::param_invalid(
             "AUTH_JWT_PUBLIC_KEY_PEM 是认证模块必填配置",
         ));
+    }
+    if let Some(public_key) = config.jwt_public_key_pem.as_deref() {
+        // 公钥同样前置校验，避免服务启动后才在受保护接口鉴权时暴露配置错误。
+        DecodingKey::from_rsa_pem(normalize_pem_value(public_key).as_bytes()).map_err(|err| {
+            AppError::param_invalid(format!("AUTH_JWT_PUBLIC_KEY_PEM 不是合法 RSA 公钥: {err}"))
+        })?;
     }
     if config
         .refresh_token_pepper
