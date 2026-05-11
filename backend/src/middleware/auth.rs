@@ -14,7 +14,10 @@ use crate::{
     AppState,
     context::request_context::{AuthType, RequestContext},
     error::app_error::AppError,
-    modules::auth::{service::AuthService, token::AuthTokenService},
+    modules::{
+        auth::{service::AuthService, token::AuthTokenService},
+        permission::service::PermissionService,
+    },
 };
 
 pub async fn auth_middleware(
@@ -25,6 +28,14 @@ pub async fn auth_middleware(
     let path = request.uri().path().to_string();
     if is_public_path(&path) || state.database.is_none() {
         return next.run(request).await;
+    }
+    if let Some(pool) = state.database.as_ref() {
+        let method = request.method().as_str().to_ascii_uppercase();
+        match PermissionService::is_public_api(pool, &method, &path).await {
+            Ok(true) => return next.run(request).await,
+            Ok(false) => {}
+            Err(err) => return auth_error_response(&state, &request, err),
+        }
     }
     let token = match bearer_token(&request) {
         Ok(token) => token,

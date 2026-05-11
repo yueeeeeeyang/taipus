@@ -120,6 +120,52 @@ fn auth_migration_exists_for_mysql_and_postgres() {
 }
 
 #[test]
+fn permission_migration_exists_for_mysql_and_postgres() {
+    // 权限模块资源拆表，但授权规则必须通过 resource_type + resource_id 保持统一鉴权模型。
+    let mysql = include_str!("../../migrations/mysql/V7__create_permission_tables.sql");
+    let postgres = include_str!("../../migrations/postgres/V7__create_permission_tables.sql");
+
+    for migration in [mysql, postgres] {
+        for table in [
+            "sys_permission_applications",
+            "sys_permission_menus",
+            "sys_permission_buttons",
+            "sys_permission_apis",
+            "sys_roles",
+            "sys_role_relations",
+            "sys_role_closures",
+            "sys_account_roles",
+            "sys_permission_grants",
+            "sys_permission_versions",
+            "sys_permission_audit_logs",
+        ] {
+            assert!(migration.contains(&format!("CREATE TABLE {table}")));
+        }
+        assert!(migration.contains("resource_type"));
+        assert!(migration.contains("resource_id"));
+        assert!(migration.contains("ancestor_role_id"));
+        assert!(migration.contains("descendant_role_id"));
+        assert!(migration.contains("api_auth_login"));
+        assert!(migration.contains("api_auth_me"));
+        assert!(migration.contains("api_permission_roles_post"));
+        assert!(migration.contains("api_hrm_users_get"));
+        assert!(migration.contains("api_system_tenants_get"));
+    }
+
+    assert!(mysql.contains("active_grant_key"));
+    assert!(mysql.contains("active_route_key"));
+    assert!(mysql.contains("active_relation_key VARCHAR(64)"));
+    assert!(mysql.contains("MD5(CONCAT(tenant_id, '#', parent_role_id, '#', child_role_id))"));
+    assert!(
+        mysql.contains("MD5(CONCAT(tenant_id, '#', ancestor_role_id, '#', descendant_role_id))")
+    );
+    assert!(mysql.contains("MD5(CONCAT(tenant_id, '#', account_id, '#', role_id))"));
+    assert!(postgres.contains("WHERE deleted = FALSE"));
+    assert!(postgres.contains("uk_sys_permission_grants_active_key"));
+    assert!(postgres.contains("uk_sys_permission_apis_active_route"));
+}
+
+#[test]
 fn persistent_tables_include_unified_base_fields() {
     // 当前所有已创建的持久化表都必须包含统一基础字段，避免后续业务模块字段语义漂移。
     let migrations = [
@@ -133,6 +179,8 @@ fn persistent_tables_include_unified_base_fields() {
         include_str!("../../migrations/postgres/V5__create_tenant_tables.sql"),
         include_str!("../../migrations/mysql/V6__create_auth_tables.sql"),
         include_str!("../../migrations/postgres/V6__create_auth_tables.sql"),
+        include_str!("../../migrations/mysql/V7__create_permission_tables.sql"),
+        include_str!("../../migrations/postgres/V7__create_permission_tables.sql"),
     ];
     let required_columns = [
         "version",

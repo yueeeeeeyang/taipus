@@ -5,4 +5,5 @@
 pub mod auth;
 pub mod example;
 pub mod hrm;
+pub mod permission;
 pub mod tenant;

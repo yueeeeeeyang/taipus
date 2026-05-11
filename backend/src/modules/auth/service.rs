@@ -20,6 +20,7 @@ use crate::{
             repository::{AccountTenantWrite, AccountWrite, AuthRepository, RefreshTokenWrite},
             token::{AuthTokenService, hash_refresh_token},
         },
+        permission::repository::PermissionRepository,
         tenant::service::TenantService,
     },
     response::page::PageResult,
@@ -646,10 +647,15 @@ pub async fn bootstrap_admin(pool: &DatabasePool, config: &AuthConfig) -> AppRes
     ) else {
         return Ok(());
     };
-    if AuthRepository::find_account_by_username(pool, username)
-        .await?
-        .is_some()
-    {
+    if let Some(account) = AuthRepository::find_account_by_username(pool, username).await? {
+        PermissionRepository::ensure_bootstrap_admin_permissions(
+            pool,
+            tenant_id,
+            &account.id,
+            "bootstrap-auth",
+            now_utc(),
+        )
+        .await?;
         return Ok(());
     }
     let ctx = RequestContext::anonymous("bootstrap-auth");
@@ -669,11 +675,19 @@ pub async fn bootstrap_admin(pool: &DatabasePool, config: &AuthConfig) -> AppRes
         pool,
         &ctx,
         CreateAccountTenantRequest {
-            account_id: account.id,
+            account_id: account.id.clone(),
             tenant_id: tenant_id.to_string(),
             status: AccountTenantStatus::Enabled.as_str().to_string(),
             is_default: true,
         },
+    )
+    .await?;
+    PermissionRepository::ensure_bootstrap_admin_permissions(
+        pool,
+        tenant_id,
+        &account.id,
+        "bootstrap-auth",
+        now_utc(),
     )
     .await?;
     Ok(())

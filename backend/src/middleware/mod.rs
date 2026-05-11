@@ -5,5 +5,6 @@
 pub mod access_log;
 pub mod auth;
 pub mod locale;
+pub mod permission;
 pub mod tenant;
 pub mod trace_id;
